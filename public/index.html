@@ -57,7 +57,7 @@
           <p class="subtitle">โรงพยาบาลโคกศรีสุพรรณ จังหวัดสกลนคร • บริหารจัดการคำขอ อนุมัติ และพิมพ์เอกสาร A4</p>
         </div>
         <div class="topbar-actions">
-          <button class="btn btn-outline" onclick="printBoard()">🖨️ พิมพ์รายงาน A4</button>
+          <button class="btn btn-outline admin-only" onclick="printBoard()">🖨️ พิมพ์รายงาน A4</button>
           <button class="btn btn-primary" onclick="switchTab('create')">✈️ ยื่นคำขอใหม่</button>
         </div>
       </header>
@@ -327,22 +327,14 @@
             <div class="card-header">
               <h3>รายงานสรุปการไปราชการและงบประมาณ</h3>
               <div class="filters-inline">
-                <select id="repMode" onchange="toggleReportMode()">
-                  <option value="all">ทั้งหมด</option>
-                  <option value="date">ตามวันที่</option>
-                  <option value="month">ตามเดือน / ปี พ.ศ.</option>
-                  <option value="fiscal">ตามปีงบประมาณ (ต.ค.-ก.ย.)</option>
-                </select>
-                <input type="date" id="repDate" class="hidden input-sm" />
-                <select id="repMonth" class="hidden">
-                  <option value="0">-- ทุกเดือน --</option>
+                <select id="repYear"></select>
+                <select id="repMonth">
+                  <option value="0">-- ทั้งปี --</option>
                   <option value="1">มกราคม</option><option value="2">กุมภาพันธ์</option><option value="3">มีนาคม</option>
                   <option value="4">เมษายน</option><option value="5">พฤษภาคม</option><option value="6">มิถุนายน</option>
                   <option value="7">กรกฎาคม</option><option value="8">สิงหาคม</option><option value="9">กันยายน</option>
                   <option value="10">ตุลาคม</option><option value="11">พฤศจิกายน</option><option value="12">ธันวาคม</option>
                 </select>
-                <select id="repYear" class="hidden"></select>
-                <select id="repFiscalYear" class="hidden"></select>
                 <button class="btn btn-primary btn-sm" onclick="loadReports()">ดูรายงาน</button>
               </div>
             </div>
@@ -424,6 +416,20 @@
       <div class="pdf-viewer-wrap">
         <div id="pdfLoading" class="pdf-loading">กำลังสร้างไฟล์ PDF ขนาด A4...</div>
         <iframe id="pdfFrame" class="pdf-frame" title="PDF Preview"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- REQUEST DETAILS MODAL (GENERAL USERS) -->
+  <div id="requestDetailModal" class="modal hidden no-print">
+    <div class="modal-box" style="max-width:720px;">
+      <div class="modal-head">
+        <h3 id="reqDetailTitle">รายละเอียดการขออนุมัติไปราชการ</h3>
+        <button class="close-btn" onclick="closeModal('requestDetailModal')">✕</button>
+      </div>
+      <div id="reqDetailBody" style="padding:16px 20px;"></div>
+      <div class="form-actions" style="padding:0 20px 18px;justify-content:flex-end;">
+        <button type="button" class="btn btn-outline" onclick="closeModal('requestDetailModal')">ปิด</button>
       </div>
     </div>
   </div>

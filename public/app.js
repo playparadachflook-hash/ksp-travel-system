@@ -337,7 +337,7 @@ async function loadTravels(page = 1, exactDate = '') {
             <td>${esc(r.assigned_to || '-')}</td>
             <td><span class="badge ${st.cls}">${st.label}</span></td>
             <td class="no-print" style="white-space:nowrap">
-              <button class="btn btn-outline btn-sm" onclick="viewTravel(${r.row_id})">ดู PDF</button>
+              <button class="btn btn-outline btn-sm" onclick="viewTravel(${r.row_id})">${state.user?.isAdmin ? 'ดู PDF' : 'ดูรายละเอียด'}</button>
               ${canEdit ? `<button class="btn btn-primary btn-sm" onclick="editTravel(${r.row_id})">แก้ไข</button>` : ''}
               ${state.user?.isAdmin ? `<button class="btn btn-danger btn-sm" onclick="deleteTravel(${r.row_id})">ลบ</button>` : ''}
             </td>
@@ -374,6 +374,10 @@ document.getElementById('filterQ').addEventListener('keydown', (e) => {
 
 // ==================== PDF MODAL ====================
 function openPdfModal(title, pdfUrl) {
+  if (!state.user?.isAdmin) {
+    alert('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถดาวน์โหลดหรือพิมพ์เอกสารได้');
+    return;
+  }
   const modal = document.getElementById('detailModal');
   const frame = document.getElementById('pdfFrame');
   const loading = document.getElementById('pdfLoading');
@@ -406,8 +410,39 @@ function printPdfFrame() {
   }
 }
 
+async function openRequestDetailModal(id) {
+  const r = await api(`/api/travels/${id}`);
+  const st = STATUS_MAP[r.status] || { label: r.status || '-', cls: 'badge-0' };
+  const dateTxt = r.start_date === r.end_date ? fmtThaiDate(r.start_date) : `${fmtThaiDate(r.start_date)} - ${fmtThaiDate(r.end_date)}`;
+  const unit = r.unit_name || r.unit_custom || '-';
+  document.getElementById('reqDetailTitle').textContent = `รายละเอียดการขออนุมัติไปราชการ ${r.doc_no || '#' + r.row_id}`;
+  document.getElementById('reqDetailBody').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;font-size:14px;">
+      <div><strong>เลขที่เอกสาร:</strong> ${esc(r.doc_no || '#' + r.row_id)}</div>
+      <div><strong>สถานะ:</strong> <span class="badge ${st.cls}">${st.label}</span></div>
+      <div><strong>วันที่ไปราชการ:</strong> ${dateTxt}</div>
+      <div><strong>เวลา:</strong> ${esc(r.start_time || '-')} - ${esc(r.end_time || '-')}</div>
+      <div style="grid-column:1/-1;"><strong>เรื่อง / ภารกิจ:</strong> ${esc(r.subject || '-')}</div>
+      <div><strong>ประเภท:</strong> ${esc(r.travel_type || '-')}</div>
+      <div><strong>สถานที่:</strong> ${esc(r.destination || '-')} จ.${esc(r.province || '-')}</div>
+      <div><strong>ผู้ขออนุมัติ:</strong> ${esc(r.requester_name || '-')}</div>
+      <div><strong>หน่วยงาน:</strong> ${esc(unit)}</div>
+      <div><strong>การเดินทาง:</strong> ${esc(r.transport_type || '-')}</div>
+      <div><strong>งบประมาณประมาณการ:</strong> ${Number(r.estimated_cost || 0).toLocaleString()} บาท</div>
+      <div style="grid-column:1/-1;"><strong>ผู้ร่วมเดินทาง / ผู้รับผิดชอบ:</strong> ${esc(r.companions || r.assigned_to || '-')}</div>
+      <div style="grid-column:1/-1;"><strong>รายละเอียดเพิ่มเติม:</strong> ${esc(r.memo || '-')}</div>
+      <div style="grid-column:1/-1;"><strong>ความเห็นผู้ดูแลระบบ:</strong> ${esc(r.admin_note || r.memo1 || '-')}</div>
+    </div>
+  `;
+  document.getElementById('requestDetailModal').classList.remove('hidden');
+}
+
 function viewTravel(id) {
-  openPdfModal(`ใบขออนุมัติเดินทางไปราชการ #${id} (ขนาด A4)`, `/api/travels/${id}/pdf`);
+  if (state.user?.isAdmin) {
+    openPdfModal(`ใบขออนุมัติเดินทางไปราชการ #${id} (ขนาด A4)`, `/api/travels/${id}/pdf`);
+  } else {
+    openRequestDetailModal(id).catch((err) => alert(err.message));
+  }
 }
 
 function printBoard() {
@@ -629,7 +664,7 @@ async function loadReports() {
     <div class="report-box">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
         <h4 style="margin:0;">${title}</h4>
-        <button class="btn btn-outline btn-sm" onclick="printReportSection('${section}', '${title}')">🖨️ พิมพ์ / PDF</button>
+        ${state.user?.isAdmin ? `<button class="btn btn-outline btn-sm" onclick="printReportSection('${section}', '${title}')">🖨️ พิมพ์ / PDF</button>` : ''}
       </div>
       <div class="table-wrap">
         <table>
