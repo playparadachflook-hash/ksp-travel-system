@@ -118,11 +118,17 @@ async function loadUnits() {
 function populateYearDropdowns() {
   const curYear = new Date().getFullYear();
   let html = '<option value="">-- ทุกปี --</option>';
+  let fyHtml = '';
   for (let y = curYear + 1; y >= 2020; y--) {
     html += `<option value="${y}">${y + 543}</option>`;
+    fyHtml += `<option value="${y + 543}">ปีงบประมาณ ${y + 543}</option>`;
   }
   document.getElementById('filterYear').innerHTML = html;
   document.getElementById('repYear').innerHTML = html;
+  const fyEl = document.getElementById('repFiscalYear');
+  if (fyEl) fyEl.innerHTML = fyHtml;
+  const rdEl = document.getElementById('repDate');
+  if (rdEl) rdEl.value = new Date().toISOString().slice(0, 10);
 }
 
 // ==================== TABS ====================
@@ -583,14 +589,48 @@ async function submitAdminAction(e) {
 }
 
 // ==================== REPORTS ====================
-async function loadReports() {
-  const year = document.getElementById('repYear').value;
-  const month = document.getElementById('repMonth').value;
-  const data = await api(`/api/reports/summary?year=${year}&month=${month}`);
+function toggleReportMode() {
+  const mode = document.getElementById('repMode').value;
+  document.getElementById('repDate').classList.toggle('hidden', mode !== 'date');
+  document.getElementById('repMonth').classList.toggle('hidden', mode !== 'month');
+  document.getElementById('repYear').classList.toggle('hidden', mode !== 'month');
+  document.getElementById('repFiscalYear').classList.toggle('hidden', mode !== 'fiscal');
+}
 
-  const box = (title, headers, rowsHtml) => `
+function getReportQueryString() {
+  const mode = document.getElementById('repMode').value;
+  const params = new URLSearchParams();
+  if (mode === 'date') {
+    const d = document.getElementById('repDate').value;
+    if (d) params.set('date', d);
+  } else if (mode === 'month') {
+    const y = document.getElementById('repYear').value;
+    const m = document.getElementById('repMonth').value;
+    if (y) params.set('year', y);
+    if (m && m !== '0') params.set('month', m);
+  } else if (mode === 'fiscal') {
+    const fy = document.getElementById('repFiscalYear').value;
+    if (fy) params.set('fiscalYear', fy);
+  }
+  return params.toString();
+}
+
+function printReportSection(section, title) {
+  const qs = getReportQueryString();
+  const url = `/api/reports/pdf?section=${section}${qs ? '&' + qs : ''}`;
+  openPdfModal(`${title} (ขนาด A4)`, url);
+}
+
+async function loadReports() {
+  const qs = getReportQueryString();
+  const data = await api(`/api/reports/summary${qs ? '?' + qs : ''}`);
+
+  const box = (title, section, headers, rowsHtml) => `
     <div class="report-box">
-      <h4>${title}</h4>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+        <h4 style="margin:0;">${title}</h4>
+        <button class="btn btn-outline btn-sm" onclick="printReportSection('${section}', '${title}')">🖨️ พิมพ์ / PDF</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
@@ -601,10 +641,10 @@ async function loadReports() {
   `;
 
   document.getElementById('reportsContent').innerHTML =
-    box('สรุปตามสถานะ', ['สถานะ', 'จำนวน'], data.byStatus.map((r) => `<tr><td>${(STATUS_MAP[r.status] || {}).label || r.status}</td><td>${r.total}</td></tr>`).join('')) +
-    box('สรุปตามพาหนะเดินทาง', ['พาหนะ', 'จำนวน (ครั้ง)'], data.byTransport.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.total}</td></tr>`).join('')) +
-    box('สรุปตามประเภทการไปราชการ', ['ประเภท', 'ครั้ง', 'งบประมาณการ (บ.)'], data.byType.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.total}</td><td>${Number(r.est_cost).toLocaleString()}</td></tr>`).join('')) +
-    box('สรุปตามหน่วยงาน', ['หน่วยงาน', 'ครั้ง', 'ประมาณการ (บ.)', 'ใช้จริง (บ.)'], data.byDepartment.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.total}</td><td>${Number(r.est_cost).toLocaleString()}</td><td>${Number(r.act_cost).toLocaleString()}</td></tr>`).join(''));
+    box('รายงานสรุปตามหน่วยงาน', 'department', ['หน่วยงาน', 'ครั้ง', 'ประมาณการ (บ.)', 'ใช้จริง (บ.)'], data.byDepartment.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.total}</td><td>${Number(r.est_cost).toLocaleString()}</td><td>${Number(r.act_cost).toLocaleString()}</td></tr>`).join('')) +
+    box('รายงานสรุปตามประเภทการไปราชการ', 'type', ['ประเภท', 'ครั้ง', 'งบประมาณการ (บ.)'], data.byType.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.total}</td><td>${Number(r.est_cost).toLocaleString()}</td></tr>`).join('')) +
+    box('รายงานสรุปตามพาหนะเดินทาง', 'transport', ['พาหนะ', 'จำนวน (ครั้ง)'], data.byTransport.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.total}</td></tr>`).join('')) +
+    box('รายงานสรุปตามสถานะ', 'status', ['สถานะ', 'จำนวน'], data.byStatus.map((r) => `<tr><td>${(STATUS_MAP[r.status] || {}).label || r.status}</td><td>${r.total}</td></tr>`).join(''));
 }
 
 // ==================== MASTER CRUD ====================

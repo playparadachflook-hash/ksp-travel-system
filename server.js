@@ -3,7 +3,7 @@ const path = require('path');
 const express = require('express');
 const session = require('express-session');
 const db = require('./src/db');
-const { generateTravelRequestPdf, generateTravelBoardPdf } = require('./src/pdf');
+const { generateTravelRequestPdf, generateTravelBoardPdf, generateReportSectionPdf } = require('./src/pdf');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3534);
@@ -359,19 +359,45 @@ app.delete('/api/travels/:id', requireAdmin, (req, res) => {
 });
 
 // ==================== REPORTS ====================
-app.get('/api/reports/summary', (req, res) => {
-  const { year, month } = req.query;
+function buildReportFilter(query, col = 't.start_date') {
+  const { date, year, month, fiscalYear } = query;
   const where = [];
   const params = [];
-  if (year) {
-    where.push("strftime('%Y', t.start_date) = ?");
-    params.push(String(year));
+  const desc = [];
+
+  if (date) {
+    where.push(`(t.start_date <= ? AND t.end_date >= ?)`);
+    params.push(date, date);
+    desc.push(`วันที่ ${date}`);
+  } else if (fiscalYear) {
+    const fy = Number(fiscalYear);
+    const ce = fy > 2400 ? fy - 543 : fy;
+    const start = `${ce - 1}-10-01`;
+    const end = `${ce}-09-30`;
+    where.push(`${col} >= ? AND ${col} <= ?`);
+    params.push(start, end);
+    desc.push(`ปีงบประมาณ ${ce + 543} (${start} ถึง ${end})`);
+  } else {
+    if (year) {
+      where.push(`strftime('%Y', ${col}) = ?`);
+      params.push(String(year));
+      desc.push(`ปี พ.ศ. ${Number(year) + 543}`);
+    }
+    if (month && Number(month) > 0) {
+      where.push(`strftime('%m', ${col}) = ?`);
+      params.push(String(month).padStart(2, '0'));
+      desc.push(`เดือน ${month}`);
+    }
   }
-  if (month && Number(month) > 0) {
-    where.push("strftime('%m', t.start_date) = ?");
-    params.push(String(month).padStart(2, '0'));
-  }
-  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  return {
+    whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '',
+    params,
+    filterDesc: desc.join(' | ') || 'ข้อมูลทั้งหมด',
+  };
+}
+
+function getTravelReportData(query) {
+  const { whereSql, params, filterDesc } = buildReportFilter(query);
 
   const byDepartment = db
     .prepare(
@@ -411,7 +437,55 @@ app.get('/api/reports/summary', (req, res) => {
     .prepare(`SELECT status, COUNT(*) AS total FROM travel_requests t ${whereSql} GROUP BY status`)
     .all(...params);
 
-  res.json({ byDepartment, byType, byTransport, byStatus });
+  return { filterDesc, byDepartment, byType, byTransport, byStatus };
+}
+
+app.get('/api/reports/summary', (req, res) => {
+  res.json(getTravelReportData(req.query));
+});
+
+app.get('/api/reports/pdf', (req, res) => {
+  const { section = 'department', download } = req.query;
+  const data = getTravelReportData(req.query);
+  const isDl = download === '1';
+
+  if (section === 'department') {
+    const cols = [
+      { label: 'ลำดับ', w: 40, align: 'center' },
+      { label: 'หน่วยงาน', w: 220 },
+      { label: 'จำนวน (ครั้ง)', w: 75, align: 'center' },
+      { label: 'งบประมาณการ (บ.)', w: 94, align: 'right' },
+      { label: 'งบใช้จริง (บ.)', w: 94, align: 'right' },
+    ];
+    const rows = data.byDepartment.map((d, i) => [i + 1, d.name, d.total, Number(d.est_cost).toLocaleString(), Number(d.act_cost).toLocaleString()]);
+    return generateReportSectionPdf('รายงานสรุปการไปราชการตามหน่วยงาน', data.filterDesc, cols, rows, res, isDl);
+  }
+  if (section === 'type') {
+    const cols = [
+      { label: 'ลำดับ', w: 42, align: 'center' },
+      { label: 'ประเภทการไปราชการ', w: 270 },
+      { label: 'จำนวน (ครั้ง)', w: 95, align: 'center' },
+      { label: 'งบประมาณการ (บ.)', w: 116, align: 'right' },
+    ];
+    const rows = data.byType.map((t, i) => [i + 1, t.name, t.total, Number(t.est_cost).toLocaleString()]);
+    return generateReportSectionPdf('รายงานสรุปตามประเภทการไปราชการ', data.filterDesc, cols, rows, res, isDl);
+  }
+  if (section === 'transport') {
+    const cols = [
+      { label: 'ลำดับ', w: 45, align: 'center' },
+      { label: 'พาหนะเดินทาง', w: 350 },
+      { label: 'จำนวน (ครั้ง)', w: 128, align: 'center' },
+    ];
+    const rows = data.byTransport.map((t, i) => [i + 1, t.name, t.total]);
+    return generateReportSectionPdf('รายงานสรุปตามพาหนะเดินทาง', data.filterDesc, cols, rows, res, isDl);
+  }
+  const STATUS_NAMES = { 0: 'รออนุมัติ', 1: 'อนุมัติแล้ว', 2: 'อยู่ระหว่างเดินทาง', 6: 'เสร็จสิ้นภารกิจ', 9: 'ไม่อนุมัติ / ยกเลิก' };
+  const cols = [
+    { label: 'สถานะ', w: 350 },
+    { label: 'จำนวน (ครั้ง)', w: 173, align: 'center' },
+  ];
+  const rows = data.byStatus.map((s) => [STATUS_NAMES[s.status] || s.status, s.total]);
+  return generateReportSectionPdf('รายงานสรุปตามสถานะการไปราชการ', data.filterDesc, cols, rows, res, isDl);
 });
 
 // ==================== UNITS & USERS ====================
