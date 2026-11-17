@@ -387,63 +387,35 @@
 
   <!-- LOGIN MODAL -->
   <div id="loginModal" class="modal hidden no-print">
-    <div class="login-split-box">
-      <div class="login-left">
-        <div class="login-logo-wrap">
-          <img src="logo-ksp.jpg" alt="โลโก้โรงพยาบาลโคกศรีสุพรรณ" />
-        </div>
-        <h2>ระบบขออนุมัติไปราชการออนไลน์</h2>
-        <div class="login-sub">บุคลากร โรงพยาบาลโคกศรีสุพรรณ</div>
-        <div class="login-desc">ระบบบริหารจัดการขออนุมัติไปราชการออนไลน์ สำหรับโรงพยาบาล</div>
-        <div class="login-roles-title">ประเภทผู้ใช้งาน</div>
-        <div class="login-role-grid">
-          <div class="login-role-card">
-            <div class="login-role-icon">🛡️</div>
-            <strong>ผู้ดูแลระบบ</strong>
-            <span>จัดการระบบ<br>ทั้งหมด</span>
-          </div>
-          <div class="login-role-card">
-            <div class="login-role-icon">📋</div>
-            <strong>ผู้อำนวยการ</strong>
-            <span>อนุมัติ/ไม่อนุมัติ<br>ไปราชการ</span>
-          </div>
-          <div class="login-role-card">
-            <div class="login-role-icon">👤</div>
-            <strong>บุคลากร</strong>
-            <span>ยื่นคำขอ/ตรวจ<br>สอบสถานะ</span>
-          </div>
+    <div class="login-ghost-card">
+      <button type="button" class="close-btn login-close-btn" onclick="closeModal('loginModal')">✕</button>
+      <div class="login-brand-row">
+        <img src="logo-ksp.jpg" alt="รพ.โคกศรีสุพรรณ" class="login-brand-logo" />
+        <div class="login-brand-text">
+          <strong>ระบบขออนุมัติไปราชการออนไลน์</strong>
+          <span>โรงพยาบาลโคกศรีสุพรรณ</span>
         </div>
       </div>
-      <div class="login-right">
-        <button type="button" class="close-btn login-close-btn" onclick="closeModal('loginModal')">✕</button>
-        <div class="login-right-head">
-          <h3>เข้าสู่ระบบ</h3>
-          <p>กรุณากรอกข้อมูลเพื่อเข้าใช้งาน</p>
+      <h2 class="login-ghost-title">เข้าสู่ระบบ</h2>
+      <form onsubmit="submitLogin(event)">
+        <div class="login-ghost-field">
+          <label for="loginUser">ชื่อผู้ใช้ (Username)</label>
+          <input type="text" id="loginUser" placeholder="กรุณากรอกชื่อผู้ใช้" required autocomplete="username" />
         </div>
-        <form onsubmit="submitLogin(event)">
-          <div class="login-field">
-            <label for="loginUser">👤 ชื่อผู้ใช้</label>
-            <div class="login-input-wrap">
-              <span class="login-input-icon">👤</span>
-              <input type="text" id="loginUser" placeholder="กรุณากรอกชื่อผู้ใช้" required autocomplete="username" />
-            </div>
+        <div class="login-ghost-field">
+          <label for="loginPass">รหัสผ่าน (Password)</label>
+          <div class="login-pass-wrap">
+            <input type="password" id="loginPass" placeholder="••••••••" required autocomplete="current-password" />
+            <button type="button" class="login-eye-btn" onclick="toggleLoginPass()" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
           </div>
-          <div class="login-field">
-            <label for="loginPass">🔒 รหัสผ่าน</label>
-            <div class="login-input-wrap">
-              <span class="login-input-icon">🔑</span>
-              <input type="password" id="loginPass" placeholder="กรุณากรอกรหัสผ่าน" required autocomplete="current-password" />
-              <button type="button" class="login-eye-btn" onclick="toggleLoginPass()" title="แสดง/ซ่อนรหัสผ่าน">👁️</button>
-            </div>
-          </div>
-          <label class="login-remember">
-            <input type="checkbox" id="loginRemember" />
-            <span>จดจำข้อมูลการเข้าสู่ระบบ</span>
-          </label>
-          <div id="loginError" class="error-text hidden"></div>
-          <button type="submit" class="btn-login-submit">↪ เข้าสู่ระบบ</button>
-        </form>
-      </div>
+        </div>
+        <label class="login-remember">
+          <input type="checkbox" id="loginRemember" />
+          <span>จดจำข้อมูลการเข้าสู่ระบบ</span>
+        </label>
+        <div id="loginError" class="error-text hidden"></div>
+        <button type="submit" class="btn-ghost-signin">เข้าสู่ระบบ</button>
+      </form>
     </div>
   </div>
 
