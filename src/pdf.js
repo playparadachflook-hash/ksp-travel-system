@@ -346,11 +346,24 @@ function generateReportSectionPdf(title, filterDesc, columns, rows, res, downloa
     });
     y += maxH;
   }
-  if (y + 115 > doc.page.height - 32) {
+  if (y + 185 > doc.page.height - 32) {
     doc.addPage({ size: 'A4', margins: { top: 36, bottom: 36, left: 36, right: 36 } });
     y = 44;
   }
-  const dirY = y + 22;
+  const sigY = y + 24;
+  const sigColW = contentW / 3;
+  const sigCols = ['ชื่อผู้แจ้ง', 'ผู้ดำเนินการ', 'ผู้รับรอง / หัวหน้า'];
+  sigCols.forEach((roleLabel, idx) => {
+    const sx = left + sigColW * idx;
+    doc.fillColor('#0f172a').font('Sarabun').fontSize(9)
+      .text('ลงชื่อ .......................................', sx, sigY, { width: sigColW, align: 'center' })
+      .text('( ........................................... )', sx, sigY + 15, { width: sigColW, align: 'center' });
+    doc.font('Sarabun-Bold').text(roleLabel, sx, sigY + 30, { width: sigColW, align: 'center' });
+    doc.font('Sarabun').fontSize(8.5)
+      .text('วันที่ ......... / ......... / .............', sx, sigY + 45, { width: sigColW, align: 'center' });
+  });
+
+  const dirY = sigY + 76;
   doc.fillColor('#0f172a').font('Sarabun').fontSize(9.5)
     .text('ลงชื่อ ...............................................', left, dirY, { width: contentW, align: 'center' })
     .text('( นางณัฐปภัสร์ นวัตชัยศิริกุล )', left, dirY + 17, { width: contentW, align: 'center' });
