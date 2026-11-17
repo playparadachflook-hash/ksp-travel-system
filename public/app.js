@@ -787,11 +787,19 @@ async function deleteMaster(ep, id, refreshFn) {
 }
 
 // ==================== LOGIN / MODALS ====================
+function toggleLoginPass() {
+  const el = document.getElementById('loginPass');
+  if (el) el.type = el.type === 'password' ? 'text' : 'password';
+}
+
 function openLoginModal() {
   document.getElementById('loginError').classList.add('hidden');
   const closeBtn = document.querySelector('#loginModal .close-btn');
   if (closeBtn) closeBtn.classList.toggle('hidden', !state.user);
   document.getElementById('loginModal').classList.remove('hidden');
+  const saved = localStorage.getItem('ksp_remember_user');
+  const rem = document.getElementById('loginRemember');
+  if (saved && rem) { document.getElementById('loginUser').value = saved; rem.checked = true; }
   document.getElementById('loginUser').focus();
 }
 
@@ -812,6 +820,9 @@ async function submitLogin(e) {
         password: document.getElementById('loginPass').value,
       }),
     });
+    const rem = document.getElementById('loginRemember');
+    if (rem && rem.checked) localStorage.setItem('ksp_remember_user', document.getElementById('loginUser').value.trim());
+    else localStorage.removeItem('ksp_remember_user');
     await loadAuth();
     closeModal('loginModal');
     if (state.viewMode === 'calendar') loadCalendar();
