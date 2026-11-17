@@ -423,21 +423,13 @@ tbody tr:hover { background: #eef2ff; }
   gap: 12px;
   padding: 24px 5vw;
 }
-.login-split-box {
-  background: #ffffff;
-  width: 100%;
-  max-width: 760px;
-  border-radius: 28px;
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: 1.05fr 1fr;
-  box-shadow: 0 30px 72px rgba(2, 132, 199, 0.42), 0 0 0 1px rgba(56, 189, 248, 0.26);
+$10 28px 72px rgba(30, 64, 175, 0.36), 0 10px 30px rgba(15, 23, 42, 0.16);
   padding: 0;
 }
 .login-left {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(155deg, #0284c7 0%, #2563eb 55%, #1e40af 100%);
+  background: linear-gradient(155deg, #0f172a 0%, #1e40af 52%, #38bdf8 100%);
   color: #ffffff;
   padding: 36px 28px;
   display: flex;
@@ -445,14 +437,6 @@ tbody tr:hover { background: #eef2ff; }
   align-items: center;
   justify-content: center;
   text-align: center;
-}
-.login-left::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: repeating-linear-gradient(30deg, rgba(255,255,255,0.07) 0px, rgba(255,255,255,0.07) 2px, transparent 2px, transparent 18px), radial-gradient(circle at 85% 80%, rgba(255,255,255,0.16) 0%, transparent 40%);
-  background-size: auto;
-  pointer-events: none;
 }
 .login-left > * {
   position: relative;
@@ -597,8 +581,8 @@ tbody tr:hover { background: #eef2ff; }
 }
 .login-input-wrap input:focus {
   outline: none;
-  border-color: #0284c7;
-  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.18);
+  border-color: #1e40af;
+  box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.18);
 }
 .login-eye-btn {
   position: absolute;
@@ -624,12 +608,7 @@ tbody tr:hover { background: #eef2ff; }
   padding: 11px 16px;
   border: none;
   border-radius: 10px;
-  background: linear-gradient(90deg, #0284c7 0%, #2563eb 100%);
-  color: #ffffff;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 8px 20px rgba(2, 132, 199, 0.36);
+  background: linear-gradient(90deg, #1e40af 0%, #38bdf8 100%);$20 8px 20px rgba(30, 64, 175, 0.34);
   transition: transform 0.15s, box-shadow 0.15s;
 }
 .btn-login-submit:hover {
