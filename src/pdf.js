@@ -154,16 +154,15 @@ function generateTravelRequestPdf(item, res, download = false) {
   }
 
   // ===== SIGNATURE BLOCK =====
-  let sigY = y + 24;
-  if (sigY + 170 > 775) {
-    doc.addPage({ size: 'A4', margins: { top: 38, bottom: 38, left: 42, right: 42 } });
-    sigY = 60;
-  }
+  const sigY = Math.max(y + 28, 660);
   const colW = contentW / 3;
   const sigs = [
-    { title: 'ผู้ขออนุญาตไปราชการ', name: item.requester_name || '' },
-    { title: 'หัวหน้ากลุ่มงาน / ผู้เห็นชอบ', name: '' },
-    { title: 'ผู้ตรวจสอบ / รับรอง', name: '' },
+    { name: item.requester_name || '', lines: ['ผู้ขออนุญาตไปราชการ'] },
+    { name: '', lines: ['หัวหน้ากลุ่มงาน / ผู้เห็นชอบ'] },
+    {
+      name: 'นางณัฐปภัสร์ นวัตชัยศิริกุล',
+      lines: ['นายแพทย์ชำนาญการพิเศษ', 'รักษาการในตำแหน่ง', 'ผู้อำนวยการ รพ.โคกศรีสุพรรณ'],
+    },
   ];
 
   sigs.forEach((s, idx) => {
@@ -171,19 +170,15 @@ function generateTravelRequestPdf(item, res, download = false) {
     doc.fillColor('#334155').font('Sarabun').fontSize(9.5)
       .text('ลงชื่อ ...............................................', sx, sigY, { width: colW, align: 'center' });
     doc.text(`( ${s.name ? s.name : '...........................................'} )`, sx, sigY + 17, { width: colW, align: 'center' });
-    doc.font('Sarabun-Bold').text(s.title, sx, sigY + 34, { width: colW, align: 'center' });
+    let ly = sigY + 33;
+    s.lines.forEach((ln, li) => {
+      doc.font(li === s.lines.length - 1 ? 'Sarabun-Bold' : 'Sarabun').fontSize(9)
+        .text(ln, sx, ly, { width: colW, align: 'center' });
+      ly += 13;
+    });
     doc.font('Sarabun').fontSize(8.5).fillColor('#64748b')
-      .text('วันที่ ........../........../..........', sx, sigY + 51, { width: colW, align: 'center' });
+      .text('วันที่ ........../........../..........', sx, ly + 2, { width: colW, align: 'center' });
   });
-
-  // ===== DIRECTOR SIGNATURE (CENTER BOTTOM) =====
-  const dirY = sigY + 84;
-  doc.fillColor('#0f172a').font('Sarabun').fontSize(9.5)
-    .text('ลงชื่อ ...............................................', left, dirY, { width: contentW, align: 'center' })
-    .text('( นางณัฐปภัสร์ นวัตชัยศิริกุล )', left, dirY + 17, { width: contentW, align: 'center' });
-  doc.font('Sarabun-Bold').text('นายแพทย์ชำนาญการพิเศษ', left, dirY + 34, { width: contentW, align: 'center' });
-  doc.font('Sarabun').fontSize(9)
-    .text('รักษาการในตำแหน่ง\nผู้อำนวยการ รพ.โคกศรีสุพรรณ', left, dirY + 50, { width: contentW, align: 'center' });
 
   const nowStr = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
   doc.fillColor('#94a3b8').font('Sarabun').fontSize(8.5)
@@ -284,79 +279,21 @@ function generateTravelBoardPdf(items, filterDesc, res, download = false) {
     y += maxH;
   }
 
-  if (y + 105 > doc.page.height - 28) {
+  if (y + 115 > doc.page.height - 30) {
     doc.addPage({ size: 'A4', layout: 'landscape', margins: { top: 32, bottom: 32, left: 30, right: 30 } });
     y = 40;
+  } else {
+    y += 16;
   }
-  const dirY = y + 18;
-  doc.fillColor('#0f172a').font('Sarabun').fontSize(9.5)
-    .text('ลงชื่อ ...............................................', left, dirY, { width: contentW, align: 'center' })
-    .text('( นางณัฐปภัสร์ นวัตชัยศิริกุล )', left, dirY + 17, { width: contentW, align: 'center' });
-  doc.font('Sarabun-Bold').text('นายแพทย์ชำนาญการพิเศษ', left, dirY + 34, { width: contentW, align: 'center' });
-  doc.font('Sarabun').fontSize(9)
-    .text('รักษาการในตำแหน่ง\nผู้อำนวยการ รพ.โคกศรีสุพรรณ', left, dirY + 50, { width: contentW, align: 'center' });
+  const sigX = left + contentW - 260;
+  doc.fillColor('#334155').font('Sarabun').fontSize(9.5)
+    .text('ลงชื่อ ...............................................', sigX, y, { width: 250, align: 'center' })
+    .text('( นางณัฐปภัสร์ นวัตชัยศิริกุล )', sigX, y + 16, { width: 250, align: 'center' })
+    .text('นายแพทย์ชำนาญการพิเศษ', sigX, y + 30, { width: 250, align: 'center' })
+    .text('รักษาการในตำแหน่ง', sigX, y + 43, { width: 250, align: 'center' })
+    .font('Sarabun-Bold').text('ผู้อำนวยการ รพ.โคกศรีสุพรรณ', sigX, y + 56, { width: 250, align: 'center' });
 
   doc.end();
 }
 
-function generateReportSectionPdf(title, filterDesc, columns, rows, res, download = false) {
-  const doc = new PDFDocument({
-    size: 'A4',
-    margins: { top: 36, bottom: 36, left: 36, right: 36 },
-    info: { Title: title, Author: 'โรงพยาบาลโคกศรีสุพรรณ' },
-  });
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="report.pdf"`);
-  doc.pipe(res);
-  doc.registerFont('Sarabun', FONT_REG);
-  doc.registerFont('Sarabun-Bold', FONT_BOLD);
-  const left = 36;
-  const contentW = doc.page.width - left * 2;
-  const drawHeader = () => {
-    doc.fillColor('#312e81').font('Sarabun-Bold').fontSize(14).text(title, left, 30, { width: contentW, align: 'center' });
-    doc.fillColor('#475569').font('Sarabun').fontSize(9.5).text(`โรงพยาบาลโคกศรีสุพรรณ | ${filterDesc || 'ข้อมูลทั้งหมด'}`, left, 50, { width: contentW, align: 'center' });
-    let cx = left;
-    const hy = 72;
-    columns.forEach((c) => {
-      doc.rect(cx, hy, c.w, 22).fillAndStroke('#e0e7ff', '#94a3b8');
-      doc.fillColor('#1e1b4b').font('Sarabun-Bold').fontSize(9).text(c.label, cx + 4, hy + 5, { width: c.w - 8, align: c.align || 'left' });
-      cx += c.w;
-    });
-    return hy + 22;
-  };
-  let y = drawHeader();
-  for (let i = 0; i < rows.length; i++) {
-    const vals = rows[i];
-    doc.font('Sarabun').fontSize(9);
-    let maxH = 20;
-    vals.forEach((v, idx) => {
-      const h = doc.heightOfString(String(v ?? '-'), { width: columns[idx].w - 8 }) + 9;
-      if (h > maxH) maxH = h;
-    });
-    if (y + maxH > doc.page.height - 42) {
-      doc.addPage({ size: 'A4', margins: { top: 36, bottom: 36, left: 36, right: 36 } });
-      y = drawHeader();
-    }
-    let cx = left;
-    const bg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
-    vals.forEach((v, idx) => {
-      doc.rect(cx, y, columns[idx].w, maxH).fillAndStroke(bg, '#cbd5e1');
-      doc.fillColor('#0f172a').font('Sarabun').fontSize(9).text(String(v ?? '-'), cx + 4, y + 4.5, { width: columns[idx].w - 8, align: columns[idx].align || 'left' });
-      cx += columns[idx].w;
-    });
-    y += maxH;
-  }
-  if (y + 115 > doc.page.height - 32) {
-    doc.addPage({ size: 'A4', margins: { top: 36, bottom: 36, left: 36, right: 36 } });
-    y = 44;
-  }
-  const dirY = y + 22;
-  doc.fillColor('#0f172a').font('Sarabun').fontSize(9.5)
-    .text('ลงชื่อ ...............................................', left, dirY, { width: contentW, align: 'center' })
-    .text('( นางณัฐปภัสร์ นวัตชัยศิริกุล )', left, dirY + 17, { width: contentW, align: 'center' });
-  doc.font('Sarabun-Bold').text('นายแพทย์ชำนาญการพิเศษ', left, dirY + 34, { width: contentW, align: 'center' });
-  doc.font('Sarabun').fontSize(9).text('รักษาการในตำแหน่ง\nผู้อำนวยการ รพ.โคกศรีสุพรรณ', left, dirY + 50, { width: contentW, align: 'center' });
-  doc.end();
-}
-
-module.exports = { generateTravelRequestPdf, generateTravelBoardPdf, generateReportSectionPdf };
+module.exports = { generateTravelRequestPdf, generateTravelBoardPdf };
