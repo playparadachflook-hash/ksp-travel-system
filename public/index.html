@@ -327,14 +327,22 @@
             <div class="card-header">
               <h3>รายงานสรุปการไปราชการและงบประมาณ</h3>
               <div class="filters-inline">
-                <select id="repYear"></select>
-                <select id="repMonth">
-                  <option value="0">-- ทั้งปี --</option>
+                <select id="repMode" onchange="toggleReportMode()">
+                  <option value="all">ทั้งหมด</option>
+                  <option value="date">ตามวันที่</option>
+                  <option value="month">ตามเดือน / ปี พ.ศ.</option>
+                  <option value="fiscal">ตามปีงบประมาณ (ต.ค.-ก.ย.)</option>
+                </select>
+                <input type="date" id="repDate" class="hidden input-sm" />
+                <select id="repMonth" class="hidden">
+                  <option value="0">-- ทุกเดือน --</option>
                   <option value="1">มกราคม</option><option value="2">กุมภาพันธ์</option><option value="3">มีนาคม</option>
                   <option value="4">เมษายน</option><option value="5">พฤษภาคม</option><option value="6">มิถุนายน</option>
                   <option value="7">กรกฎาคม</option><option value="8">สิงหาคม</option><option value="9">กันยายน</option>
                   <option value="10">ตุลาคม</option><option value="11">พฤศจิกายน</option><option value="12">ธันวาคม</option>
                 </select>
+                <select id="repYear" class="hidden"></select>
+                <select id="repFiscalYear" class="hidden"></select>
                 <button class="btn btn-primary btn-sm" onclick="loadReports()">ดูรายงาน</button>
               </div>
             </div>
