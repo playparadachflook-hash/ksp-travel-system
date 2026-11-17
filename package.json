@@ -1,0 +1,27 @@
+{
+  "name": "ksp-travel-system",
+  "version": "1.0.0",
+  "description": "ระบบขออนุมัติไปราชการออนไลน์ โรงพยาบาลโคกศรีสุพรรณ (Node.js + Express + SQLite)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "travel-approval",
+    "official-duty",
+    "hospital",
+    "nodejs",
+    "express",
+    "sqlite"
+  ],
+  "author": "Khok Si Suphan Hospital",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "pdfkit": "^0.15.1"
+  }
+}

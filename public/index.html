@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ระบบขออนุมัติไปราชการออนไลน์ โรงพยาบาลโคกศรีสุพรรณ</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%234f46e5'/%3E%3Cstop offset='100%25' stop-color='%23059669'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M12 34l38-16-14 34-6-13-18-5z' fill='none' stroke='%23fff' stroke-width='3.2' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- SIDEBAR -->
+    <aside class="sidebar no-print">
+      <div class="sidebar-brand">
+        <div class="brand-badge">
+          <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" class="brand-svg">
+            <path d="M8 25L40 11L27 39L22 28L8 25Z" fill="rgba(255,255,255,0.16)" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
+            <path d="M22 28L40 11" stroke="#6ee7b7" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <h1>ไปราชการออนไลน์</h1>
+          <p>รพ.โคกศรีสุพรรณ</p>
+        </div>
+      </div>
+
+      <nav class="side-nav" id="navTabs">
+        <div class="nav-group-label">เมนูหลัก</div>
+        <button class="side-btn active" data-tab="list"><span>📅</span> ปฏิทินไปราชการ</button>
+        <button class="side-btn" data-tab="create"><span>✈️</span> ยื่นขออนุมัติไปราชการ</button>
+        <button class="side-btn hidden" data-tab="mine" id="tabMine"><span>👤</span> คำขอของฉัน</button>
+        <button class="side-btn" data-tab="reports"><span>📊</span> รายงาน & งบประมาณ</button>
+
+        <div class="nav-group-label hidden admin-only">ผู้บริหาร / ผู้อนุมัติ</div>
+        <button class="side-btn hidden admin-only" data-tab="admin"><span>🛂</span> อนุมัติ & มอบหมายงาน</button>
+        <button class="side-btn hidden admin-only" data-tab="units"><span>🏥</span> จัดการหน่วยงาน</button>
+        <button class="side-btn hidden admin-only" data-tab="users"><span>👥</span> จัดการผู้ใช้งาน</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="eco-box">
+          <div>🌿 ลดกระดาษ <strong id="ecoPaper">0</strong> แผ่น</div>
+          <small>ประหยัด <span id="ecoBaht">0</span> บ. | <span id="ecoGhg">0</span> GHG</small>
+        </div>
+        <div id="authArea" class="side-auth"></div>
+      </div>
+    </aside>
+
+    <!-- MAIN WORKSPACE -->
+    <div class="main-wrap">
+      <header class="page-topbar no-print">
+        <div>
+          <h2 id="pageHeaderTitle">ระบบขออนุมัติไปราชการออนไลน์</h2>
+          <p class="subtitle">โรงพยาบาลโคกศรีสุพรรณ จังหวัดสกลนคร • บริหารจัดการคำขอ อนุมัติ และพิมพ์เอกสาร A4</p>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn btn-outline" onclick="printBoard()">🖨️ พิมพ์รายงาน A4</button>
+          <button class="btn btn-primary" onclick="switchTab('create')">✈️ ยื่นคำขอใหม่</button>
+        </div>
+      </header>
+
+      <main class="content">
+        <!-- KPI CARDS -->
+        <section class="stats-grid no-print">
+          <div class="stat-card accent-indigo">
+            <div class="stat-top"><span>คำขอทั้งหมด</span><span class="stat-ico">📋</span></div>
+            <div class="stat-val" id="statTotal">-</div>
+          </div>
+          <div class="stat-card accent-amber">
+            <div class="stat-top"><span>รออนุมัติ</span><span class="stat-ico">⏳</span></div>
+            <div class="stat-val" id="statPending">-</div>
+          </div>
+          <div class="stat-card accent-emerald">
+            <div class="stat-top"><span>อนุมัติ / กำลังเดินทาง</span><span class="stat-ico">✅</span></div>
+            <div class="stat-val" id="statApproved">-</div>
+          </div>
+          <div class="stat-card accent-teal">
+            <div class="stat-top"><span>เสร็จสิ้นภารกิจ</span><span class="stat-ico">🏁</span></div>
+            <div class="stat-val" id="statCompleted">-</div>
+          </div>
+          <div class="stat-card accent-rose">
+            <div class="stat-top"><span>งบประมาณการ (บ.)</span><span class="stat-ico">💰</span></div>
+            <div class="stat-val" id="statBudget">-</div>
+          </div>
+        </section>
+
+        <!-- TAB: LIST / CALENDAR -->
+        <section id="view-list" class="tab-view">
+          <div class="card">
+            <div class="card-header">
+              <h3 id="listTitle">ปฏิทินการเดินทางไปราชการ</h3>
+              <div class="view-toggle no-print">
+                <button class="btn btn-sm active" id="btnViewCal" onclick="setViewMode('calendar')">📅 ปฏิทิน</button>
+                <button class="btn btn-sm" id="btnViewTable" onclick="setViewMode('table')">📋 ตาราง</button>
+              </div>
+            </div>
+
+            <div class="filters no-print">
+              <input type="text" id="filterQ" placeholder="ค้นหา: เรื่อง, สถานที่, จังหวัด, ผู้ขอ, เลขที่คำขอ..." />
+              <select id="filterYear"></select>
+              <select id="filterMonth">
+                <option value="0">-- ทุกเดือน --</option>
+                <option value="1">มกราคม</option><option value="2">กุมภาพันธ์</option><option value="3">มีนาคม</option>
+                <option value="4">เมษายน</option><option value="5">พฤษภาคม</option><option value="6">มิถุนายน</option>
+                <option value="7">กรกฎาคม</option><option value="8">สิงหาคม</option><option value="9">กันยายน</option>
+                <option value="10">ตุลาคม</option><option value="11">พฤศจิกายน</option><option value="12">ธันวาคม</option>
+              </select>
+              <select id="filterStatus">
+                <option value="">-- ทุกสถานะ --</option>
+                <option value="0">รออนุมัติ</option>
+                <option value="1">อนุมัติแล้ว</option>
+                <option value="2">อยู่ระหว่างเดินทาง</option>
+                <option value="6">เสร็จสิ้นภารกิจ</option>
+                <option value="9">ไม่อนุมัติ / ยกเลิก</option>
+              </select>
+              <select id="filterType">
+                <option value="">-- ทุกประเภท --</option>
+                <option value="ประชุม/สัมมนา">ประชุม/สัมมนา</option>
+                <option value="อบรม/ศึกษาดูงาน">อบรม/ศึกษาดูงาน</option>
+                <option value="นิเทศงาน/ตรวจราชการ">นิเทศงาน/ตรวจราชการ</option>
+                <option value="ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ">ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ</option>
+                <option value="อื่นๆ">อื่นๆ</option>
+              </select>
+              <button class="btn btn-primary" onclick="applyFilters()">ค้นหา</button>
+              <button class="btn btn-outline" onclick="resetFilters()">ล้าง</button>
+            </div>
+
+            <!-- CALENDAR -->
+            <div id="calendarContainer">
+              <div class="cal-nav no-print">
+                <div class="cal-nav-left">
+                  <button class="btn btn-outline btn-sm" onclick="shiftCalMonth(-1)">◀ เดือนก่อน</button>
+                  <button class="btn btn-outline btn-sm" onclick="goCalToday()">วันนี้</button>
+                  <button class="btn btn-outline btn-sm" onclick="shiftCalMonth(1)">เดือนถัดไป ▶</button>
+                </div>
+                <h3 id="calMonthLabel" class="cal-month-label"></h3>
+                <div class="cal-legend">
+                  <span class="badge badge-0">รออนุมัติ</span>
+                  <span class="badge badge-1">อนุมัติแล้ว</span>
+                  <span class="badge badge-2">กำลังเดินทาง</span>
+                  <span class="badge badge-6">เสร็จสิ้น</span>
+                  <span class="badge badge-9">ไม่อนุมัติ</span>
+                </div>
+              </div>
+              <div id="calendarGrid" class="calendar-grid"></div>
+            </div>
+
+            <!-- TABLE -->
+            <div id="tableContainer" class="hidden">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>เลขที่คำขอ</th>
+                      <th>วันที่เดินทาง</th>
+                      <th>เรื่อง / วัตถุประสงค์</th>
+                      <th>สถานที่ / จังหวัด</th>
+                      <th>ผู้ขอ / หน่วยงาน</th>
+                      <th>พาหนะ / งบ</th>
+                      <th>ผู้รับผิดชอบ</th>
+                      <th>สถานะ</th>
+                      <th class="no-print">จัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody id="travelsTbody"></tbody>
+                </table>
+              </div>
+              <div class="pagination no-print" id="pagination"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB: CREATE / EDIT -->
+        <section id="view-create" class="tab-view hidden">
+          <div class="card form-card">
+            <div class="card-header">
+              <h3 id="travelFormTitle">แบบฟอร์มขออนุมัติเดินทางไปราชการ</h3>
+              <button class="btn btn-outline btn-sm" onclick="resetTravelForm()">ล้างฟอร์ม</button>
+            </div>
+            <div id="createAuthNotice" class="alert hidden">
+              กรุณาเข้าสู่ระบบก่อนยื่นคำขออนุมัติไปราชการ
+              <button class="btn btn-primary btn-sm" onclick="openLoginModal()">เข้าสู่ระบบ</button>
+            </div>
+            <form id="travelForm" onsubmit="submitTravel(event)">
+              <input type="hidden" id="fRowId" />
+              <div class="form-grid">
+                <div class="form-group full">
+                  <label>เรื่อง / วัตถุประสงค์การไปราชการ *</label>
+                  <input type="text" id="fSubject" required placeholder="เช่น ประชุมวิชาการ, อบรมเชิงปฏิบัติการ, นิเทศงาน..." />
+                </div>
+                <div class="form-group">
+                  <label>ประเภทการไปราชการ</label>
+                  <select id="fTravelType">
+                    <option value="ประชุม/สัมมนา">ประชุม/สัมมนา</option>
+                    <option value="อบรม/ศึกษาดูงาน">อบรม/ศึกษาดูงาน</option>
+                    <option value="นิเทศงาน/ตรวจราชการ">นิเทศงาน/ตรวจราชการ</option>
+                    <option value="ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ">ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ</option>
+                    <option value="อื่นๆ">อื่นๆ</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>หน่วยงานที่สังกัด</label>
+                  <select id="fUnitId"></select>
+                </div>
+                <div class="form-group">
+                  <label>สถานที่ไปราชการ *</label>
+                  <input type="text" id="fDestination" required placeholder="เช่น สสจ.สกลนคร, โรงแรม..." />
+                </div>
+                <div class="form-group">
+                  <label>จังหวัด *</label>
+                  <input type="text" id="fProvince" required value="สกลนคร" />
+                </div>
+                <div class="form-group">
+                  <label>วันที่เริ่มต้นเดินทาง *</label>
+                  <input type="date" id="fStartDate" required />
+                </div>
+                <div class="form-group">
+                  <label>วันที่สิ้นสุดเดินทาง *</label>
+                  <input type="date" id="fEndDate" required />
+                </div>
+                <div class="form-group">
+                  <label>เวลาออกเดินทาง</label>
+                  <input type="time" id="fStartTime" value="08:30" />
+                </div>
+                <div class="form-group">
+                  <label>เวลากลับ</label>
+                  <input type="time" id="fEndTime" value="16:30" />
+                </div>
+                <div class="form-group full">
+                  <label>รายชื่อผู้ร่วมเดินทาง</label>
+                  <textarea id="fTravelers" rows="2" placeholder="ระบุรายชื่อผู้ร่วมเดินทาง (ถ้ามี)..."></textarea>
+                </div>
+                <div class="form-group">
+                  <label>จำนวนผู้เดินทาง (คน)</label>
+                  <input type="number" id="fTravelerCount" min="1" value="1" />
+                </div>
+                <div class="form-group">
+                  <label>การเดินทาง / พาหนะ</label>
+                  <select id="fTransportType">
+                    <option value="รถโรงพยาบาล">รถโรงพยาบาล</option>
+                    <option value="รถยนต์ส่วนตัว">รถยนต์ส่วนตัว</option>
+                    <option value="รถโดยสารสาธารณะ">รถโดยสารสาธารณะ</option>
+                    <option value="เครื่องบิน">เครื่องบิน</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>แหล่งงบประมาณ</label>
+                  <select id="fBudgetSource">
+                    <option value="งบโรงพยาบาล">งบโรงพยาบาล</option>
+                    <option value="งบผู้จัด">งบผู้จัด</option>
+                    <option value="ไม่ใช้งบประมาณ">ไม่ใช้งบประมาณ</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>ประมาณการค่าใช้จ่าย (บาท)</label>
+                  <input type="number" id="fEstimatedCost" min="0" value="0" />
+                </div>
+                <div class="form-group">
+                  <label>ชื่อผู้ขออนุญาต *</label>
+                  <input type="text" id="fRequesterName" required />
+                </div>
+                <div class="form-group">
+                  <label>ตำแหน่ง / เบอร์โทร</label>
+                  <div class="inline-inputs">
+                    <input type="text" id="fRequesterPos" placeholder="ตำแหน่ง" style="flex:1" />
+                    <input type="text" id="fRequesterTel" placeholder="โทร." style="width:120px" />
+                  </div>
+                </div>
+                <div class="form-group full">
+                  <label>หมายเหตุเพิ่มเติม</label>
+                  <textarea id="fMemo" rows="2" placeholder="รายละเอียดเพิ่มเติม..."></textarea>
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">💾 บันทึกยื่นคำขอไปราชการ</button>
+                <button type="button" class="btn btn-outline" onclick="switchTab('list')">ยกเลิก</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <!-- TAB: ADMIN APPROVAL -->
+        <section id="view-admin" class="tab-view hidden">
+          <div class="card">
+            <div class="card-header">
+              <h3>พิจารณาอนุมัติคำขอไปราชการ & มอบหมายผู้ดำเนินการ</h3>
+              <div class="filters-inline">
+                <select id="adminFilterStatus" onchange="loadAdminList(1)">
+                  <option value="0">รออนุมัติ</option>
+                  <option value="1">อนุมัติแล้ว</option>
+                  <option value="2">อยู่ระหว่างเดินทาง</option>
+                  <option value="">-- ทั้งหมด --</option>
+                  <option value="6">เสร็จสิ้นภารกิจ</option>
+                  <option value="9">ไม่อนุมัติ / ยกเลิก</option>
+                </select>
+                <input type="text" id="adminFilterQ" placeholder="ค้นหา..." class="input-sm" />
+                <button class="btn btn-primary btn-sm" onclick="loadAdminList(1)">ค้นหา</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>เลขที่</th>
+                    <th>วันที่เดินทาง</th>
+                    <th>เรื่อง / สถานที่</th>
+                    <th>ผู้ขอ / หน่วยงาน</th>
+                    <th>งบประมาณ (บ.)</th>
+                    <th>ผู้ดำเนินการ / พขร.</th>
+                    <th>สถานะ</th>
+                    <th>จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody id="adminTbody"></tbody>
+              </table>
+            </div>
+            <div class="pagination" id="adminPagination"></div>
+          </div>
+        </section>
+
+        <!-- TAB: REPORTS -->
+        <section id="view-reports" class="tab-view hidden">
+          <div class="card">
+            <div class="card-header">
+              <h3>รายงานสรุปการไปราชการและงบประมาณ</h3>
+              <div class="filters-inline">
+                <select id="repYear"></select>
+                <select id="repMonth">
+                  <option value="0">-- ทั้งปี --</option>
+                  <option value="1">มกราคม</option><option value="2">กุมภาพันธ์</option><option value="3">มีนาคม</option>
+                  <option value="4">เมษายน</option><option value="5">พฤษภาคม</option><option value="6">มิถุนายน</option>
+                  <option value="7">กรกฎาคม</option><option value="8">สิงหาคม</option><option value="9">กันยายน</option>
+                  <option value="10">ตุลาคม</option><option value="11">พฤศจิกายน</option><option value="12">ธันวาคม</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="loadReports()">ดูรายงาน</button>
+              </div>
+            </div>
+            <div id="reportsContent" class="reports-grid"></div>
+          </div>
+        </section>
+
+        <!-- TAB: UNITS -->
+        <section id="view-units" class="tab-view hidden">
+          <div class="card">
+            <div class="card-header">
+              <h3>จัดการข้อมูลหน่วยงาน</h3>
+              <button class="btn btn-primary btn-sm" onclick="openMasterModal('unit')">➕ เพิ่มหน่วยงาน</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>ID</th><th>รหัส</th><th>ชื่อหน่วยงาน</th><th>หัวหน้าหน่วยงาน</th><th>โทร</th><th>จัดการ</th></tr></thead>
+                <tbody id="unitsTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB: USERS -->
+        <section id="view-users" class="tab-view hidden">
+          <div class="card">
+            <div class="card-header">
+              <h3>จัดการข้อมูลผู้ใช้งาน</h3>
+              <button class="btn btn-primary btn-sm" onclick="openMasterModal('user')">➕ เพิ่มผู้ใช้งาน</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>ID</th><th>ชื่อ-นามสกุล</th><th>ตำแหน่ง</th><th>Username</th><th>หน่วยงาน</th><th>สิทธิ์</th><th>จัดการ</th></tr></thead>
+                <tbody id="usersTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- LOGIN MODAL -->
+  <div id="loginModal" class="modal hidden no-print">
+    <div class="modal-box modal-sm">
+      <div class="modal-head">
+        <h3>เข้าสู่ระบบไปราชการออนไลน์</h3>
+        <button class="close-btn" onclick="closeModal('loginModal')">✕</button>
+      </div>
+      <form onsubmit="submitLogin(event)">
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" id="loginUser" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="loginPass" required autocomplete="current-password" />
+        </div>
+        <div id="loginError" class="error-text hidden"></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary full-btn">เข้าสู่ระบบ</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- A4 PDF PREVIEW MODAL -->
+  <div id="detailModal" class="modal hidden no-print">
+    <div class="modal-box modal-pdf">
+      <div class="modal-head">
+        <h3 id="pdfModalTitle">ตัวอย่างเอกสาร PDF (ขนาด A4)</h3>
+        <div class="pdf-toolbar">
+          <a id="pdfDownloadBtn" class="btn btn-primary btn-sm" href="#" download>⬇️ ดาวน์โหลด PDF</a>
+          <button class="btn btn-outline btn-sm" onclick="printPdfFrame()">🖨️ พิมพ์ (Print)</button>
+          <a id="pdfNewTabBtn" class="btn btn-outline btn-sm" href="#" target="_blank">↗️ เปิดแท็บใหม่</a>
+          <button class="close-btn" onclick="closePdfModal()">✕</button>
+        </div>
+      </div>
+      <div class="pdf-viewer-wrap">
+        <div id="pdfLoading" class="pdf-loading">กำลังสร้างไฟล์ PDF ขนาด A4...</div>
+        <iframe id="pdfFrame" class="pdf-frame" title="PDF Preview"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADMIN APPROVAL MODAL -->
+  <div id="adminActionModal" class="modal hidden no-print">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3>อนุมัติคำขอไปราชการ & มอบหมายงาน #<span id="aaRowId"></span></h3>
+        <button class="close-btn" onclick="closeModal('adminActionModal')">✕</button>
+      </div>
+      <div id="aaSummary" class="alert" style="background:#eef2ff;border-color:#c7d2fe;color:#1e1b4b;display:block;"></div>
+      <form onsubmit="submitAdminAction(event)">
+        <input type="hidden" id="aaId" />
+        <div class="form-grid">
+          <div class="form-group">
+            <label>ผลการพิจารณาอนุมัติ *</label>
+            <select id="aaStatus">
+              <option value="0">รออนุมัติ</option>
+              <option value="1">อนุมัติแล้ว</option>
+              <option value="2">อยู่ระหว่างเดินทาง</option>
+              <option value="6">เสร็จสิ้นภารกิจ</option>
+              <option value="9">ไม่อนุมัติ / ยกเลิก</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>ค่าใช้จ่ายจริง (บาท)</label>
+            <input type="number" id="aaActualCost" min="0" value="0" />
+          </div>
+          <div class="form-group full">
+            <label>ผู้ประสานงาน / พขร. / ผู้ไปดำเนินการ</label>
+            <input type="text" id="aaAssignedTo" placeholder="เช่น พขร. วันชัย, งานการเงิน, นายสมชาย..." />
+          </div>
+          <div class="form-group full">
+            <label>ความเห็นผู้อนุมัติ / หมายเหตุ</label>
+            <textarea id="aaNote" rows="3" placeholder="บันทึกความเห็นผู้อนุมัติ..."></textarea>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">💾 บันทึกการอนุมัติ</button>
+          <button type="button" class="btn btn-outline" onclick="closeModal('adminActionModal')">ยกเลิก</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MASTER CRUD MODAL -->
+  <div id="masterModal" class="modal hidden no-print">
+    <div class="modal-box modal-sm">
+      <div class="modal-head">
+        <h3 id="masterModalTitle">เพิ่มข้อมูล</h3>
+        <button class="close-btn" onclick="closeModal('masterModal')">✕</button>
+      </div>
+      <form id="masterForm" onsubmit="submitMaster(event)"></form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
