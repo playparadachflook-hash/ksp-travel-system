@@ -4,6 +4,7 @@ const express = require('express');
 const session = require('express-session');
 const db = require('./src/db');
 const { generateTravelRequestPdf, generateTravelBoardPdf, generateReportSectionPdf } = require('./src/pdf');
+const { registerMophProviderRoutes } = require('./src/mophAuth');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3534);
@@ -79,6 +80,40 @@ app.post('/api/auth/login', (req, res) => {
 
 app.post('/api/auth/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
+});
+
+registerMophProviderRoutes(app, {
+  resolveSessionUser: async (profile, opdUser) => {
+    const loginname = String(opdUser.loginname || '').trim();
+    const firstTh = String(profile.firstname_th || '').trim();
+    const lastTh = String(profile.lastname_th || '').trim();
+    const fullNameTh = String(profile.name_th || `${firstTh} ${lastTh}` || opdUser.name || loginname).trim();
+
+    let user = db
+      .prepare('SELECT row_id, full_name, position, telephone, unit_id, role, username FROM users WHERE LOWER(username) = LOWER(?) LIMIT 1')
+      .get(loginname);
+    if (!user && firstTh && lastTh) {
+      user = db
+        .prepare('SELECT row_id, full_name, position, telephone, unit_id, role, username FROM users WHERE full_name LIKE ? AND full_name LIKE ? LIMIT 1')
+        .get(`%${firstTh}%`, `%${lastTh}%`);
+    }
+    if (!user) {
+      const info = db
+        .prepare("INSERT INTO users (username, password, full_name, position, telephone, unit_id, role) VALUES (?, '', ?, '', '', 0, 'user')")
+        .run(loginname || `moph_${Date.now()}`, fullNameTh);
+      user = db.prepare('SELECT row_id, full_name, position, telephone, unit_id, role, username FROM users WHERE row_id = ?').get(info.lastInsertRowid);
+    }
+    return {
+      row_id: user.row_id,
+      username: user.username,
+      fullName: user.full_name,
+      position: user.position || '',
+      telephone: user.telephone || '',
+      unit_id: user.unit_id || 0,
+      role: user.role || 'user',
+      isAdmin: user.role === 'admin',
+    };
+  },
 });
 
 // ==================== STATS ====================
