@@ -1,4 +1,4 @@
-const mysql = require('mysql2/promise');
+﻿const mysql = require('mysql2/promise');
 
 const HOSPCODE = process.env.MOPH_HOSPCODE || '11101';
 const HEALTH_ID_CLIENT_ID = process.env.HEALTH_ID_CLIENT_ID || '01a0faf5-2888-758a-a1c3-d885143cf2e4';
@@ -19,6 +19,7 @@ function getHosxpPool() {
       connectionLimit: 5,
       charset: 'utf8mb4',
     });
+    if (hosxpPool.pool) { hosxpPool.pool.on('connection', (conn) => conn.query('SET NAMES utf8mb4')); }
   }
   return hosxpPool;
 }
