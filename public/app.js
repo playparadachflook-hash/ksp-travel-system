@@ -329,6 +329,7 @@ async function loadTravels(page = 1) {
         <td><strong>${esc(r.requester_name)}</strong>${r.travelers ? `<br><small style="color:#0f766e">👥 ${esc(r.travelers)}</small>` : ''}</td>
         <td><span class="badge badge-${r.status || 0}">${esc(STATUS_LABELS[r.status] || 'รออนุมัติ')}</span></td>
         <td style="white-space:nowrap">
+          ${r.has_doc_pdf ? `<button class="btn-soft btn-sm" onclick="openPdfModal('หนังสือแนบ #${r.row_id}', '/api/travels/${r.row_id}/doc-pdf')">📎 หนังสือ PDF</button>` : ''}
           ${r.has_image ? `<button class="btn-soft btn-sm" onclick="openTravelImageModal(${r.row_id})">🖼️ รูปภาพ</button>` : ''}
           ${state.user ? `<button class="btn-aurora btn-sm" onclick="openTravelPdf(${r.row_id}, '${defForm}', '${esc(r.subject)}')">🖨️ พิมพ์/PDF</button>` : ''}
           ${canEdit ? `<button class="btn-soft btn-sm" onclick="editTravel(${r.row_id})">✏️ แก้ไข</button>` : ''}
@@ -382,6 +383,11 @@ function resetTravelForm() {
   document.getElementById('fImageFile').value = '';
   document.getElementById('fImagePreview').src = '';
   document.getElementById('fImagePreviewWrap').classList.add('hidden');
+  document.getElementById('fDocPdfData').value = '';
+  document.getElementById('fDocPdfName').value = '';
+  document.getElementById('fDocPdfFile').value = '';
+  document.getElementById('fDocPdfStatus').classList.add('hidden');
+  document.getElementById('btnPreviewAttachedPdf').classList.add('hidden');
   document.querySelector('input[name="attHistory"][value="never"]').checked = true;
   state.companions = [{
     person_id: state.user?.person_id || null,
@@ -634,6 +640,14 @@ async function editTravel(id) {
     document.getElementById('fImagePreview').src = item.image_data;
     document.getElementById('fImagePreviewWrap').classList.remove('hidden');
   }
+  document.getElementById('fDocPdfData').value = '';
+  document.getElementById('fDocPdfName').value = item.doc_pdf_name || '';
+  document.getElementById('fDocPdfFile').value = '';
+  if (item.has_doc_pdf) {
+    document.getElementById('fDocPdfNameLabel').textContent = `📎 ${item.doc_pdf_name || 'หนังสือแนบ.pdf'}`;
+    document.getElementById('fDocPdfStatus').classList.remove('hidden');
+    document.getElementById('btnPreviewAttachedPdf').classList.remove('hidden');
+  }
 
   state.companions = (item.companions || []).length
     ? item.companions.map((c) => ({ ...c }))
@@ -689,6 +703,8 @@ async function submitTravel(e) {
     companions: state.companions.filter((c) => String(c.full_name || '').trim()),
     image_data: document.getElementById('fImageData').value,
     image_name: document.getElementById('fImageName').value,
+    doc_pdf_data: document.getElementById('fDocPdfData').value,
+    doc_pdf_name: document.getElementById('fDocPdfName').value,
     attachment: {
       history_status: document.querySelector('input[name="attHistory"]:checked')?.value || 'never',
       necessity_reason: document.getElementById('fAttNecessity').value,
@@ -771,6 +787,7 @@ async function loadAdminList(page = 1) {
         <button class="btn-aurora btn-sm" onclick="approveTravel(${r.row_id}, 1)">✓ อนุมัติ</button>
         <button class="btn-danger btn-sm" onclick="approveTravel(${r.row_id}, 9)">✕ ไม่อนุมัติ</button>
         <button class="btn-soft btn-sm" onclick="editTravel(${r.row_id})">✏️ แก้ไข</button>
+        ${r.has_doc_pdf ? `<button class="btn-soft btn-sm" onclick="openPdfModal('หนังสือแนบ #${r.row_id}', '/api/travels/${r.row_id}/doc-pdf')">📎 หนังสือ</button>` : ''}
         <button class="btn-soft btn-sm" onclick="openTravelPdf(${r.row_id}, 'all', '${esc(r.subject)}')">🖨️ PDF</button>
       </td>
     </tr>
@@ -953,6 +970,11 @@ function removeTravelImage() {
   document.getElementById('fImageFile').value = '';
   document.getElementById('fImagePreview').src = '';
   document.getElementById('fImagePreviewWrap').classList.add('hidden');
+  document.getElementById('fDocPdfData').value = '';
+  document.getElementById('fDocPdfName').value = '';
+  document.getElementById('fDocPdfFile').value = '';
+  document.getElementById('fDocPdfStatus').classList.add('hidden');
+  document.getElementById('btnPreviewAttachedPdf').classList.add('hidden');
 }
 
 async function openTravelImageModal(id) {
@@ -964,6 +986,42 @@ async function openTravelImageModal(id) {
   } catch (err) {
     alert(err.message);
   }
+}
+
+function onDocPdfSelected(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+    alert('กรุณาเลือกไฟล์ PDF (.pdf) เท่านั้น');
+    input.value = '';
+    return;
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    alert('ไฟล์ PDF มีขนาดใหญ่เกิน 8 MB กรุณาย่อขนาดไฟล์ก่อนอัปโหลด');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById('fDocPdfData').value = reader.result;
+    document.getElementById('fDocPdfName').value = file.name;
+    document.getElementById('fDocPdfNameLabel').textContent = `📎 ${file.name}`;
+    document.getElementById('fDocPdfStatus').classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeDocPdf() {
+  document.getElementById('fDocPdfData').value = '__REMOVE__';
+  document.getElementById('fDocPdfName').value = '';
+  document.getElementById('fDocPdfFile').value = '';
+  document.getElementById('fDocPdfStatus').classList.add('hidden');
+  document.getElementById('btnPreviewAttachedPdf').classList.add('hidden');
+}
+
+function previewAttachedDocPdf() {
+  const id = document.getElementById('fRowId')?.value;
+  if (id) openPdfModal(`หนังสือแนบ #${id}`, `/api/travels/${id}/doc-pdf`);
 }
 
 function openLoginModal() {

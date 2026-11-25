@@ -226,6 +226,19 @@
                   <input type="date" id="fMemoDate" required />
                 </div>
                 <div class="form-group full">
+                  <label>แนบไฟล์หนังสือราชการ / หนังสือเชิญ (ไฟล์ PDF ไม่เกิน 8 MB)</label>
+                  <input type="hidden" id="fDocPdfData" />
+                  <input type="hidden" id="fDocPdfName" />
+                  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    <input type="file" id="fDocPdfFile" accept="application/pdf,.pdf" onchange="onDocPdfSelected(this)" style="flex:1;min-width:220px;" />
+                    <div id="fDocPdfStatus" class="hidden" style="display:flex;gap:8px;align-items:center;">
+                      <span id="fDocPdfNameLabel" class="badge badge-1"></span>
+                      <button type="button" class="btn-soft btn-sm hidden" id="btnPreviewAttachedPdf" onclick="previewAttachedDocPdf()">👁️ ดูไฟล์ PDF</button>
+                      <button type="button" class="btn-danger btn-sm" onclick="removeDocPdf()">🗑️ ลบไฟล์</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-group full">
                   <label>เรื่อง / หลักสูตรที่ขออนุมัติไปราชการ *</label>
                   <input type="text" id="fSubject" required placeholder="ระบุหัวข้อการประชุม / สัมมนา / อบรม..." />
                 </div>

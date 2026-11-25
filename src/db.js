@@ -159,6 +159,18 @@ async function ensureDatabaseAndSchema() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
+  await travelPool.query(`
+    CREATE TABLE IF NOT EXISTS travel_doc_files (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      travel_id BIGINT NOT NULL UNIQUE,
+      mime_type VARCHAR(80) DEFAULT 'application/pdf',
+      file_name VARCHAR(255) DEFAULT '',
+      file_data MEDIUMTEXT NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_tdf_travel FOREIGN KEY (travel_id) REFERENCES travel_requests (row_id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
   await syncFromHrd();
 }
 

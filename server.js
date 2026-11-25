@@ -9,7 +9,7 @@ const { registerMophProviderRoutes } = require('./src/mophAuth');
 const app = express();
 const PORT = Number(process.env.PORT || 3534);
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
@@ -307,9 +307,11 @@ app.get('/api/travels', async (req, res) => {
               (SELECT COUNT(*) FROM travel_companions tc WHERE tc.travel_id = t.row_id) AS traveler_count,
               (SELECT GROUP_CONCAT(tc.full_name ORDER BY tc.seq_no SEPARATOR ', ') FROM travel_companions tc WHERE tc.travel_id = t.row_id) AS travelers,
               CASE WHEN ? > 0 AND EXISTS (SELECT 1 FROM travel_companions tc2 WHERE tc2.travel_id = t.row_id AND tc2.person_id = ?) THEN 1 ELSE 0 END AS is_companion,
-              CASE WHEN ti.id IS NOT NULL THEN 1 ELSE 0 END AS has_image
+              CASE WHEN ti.id IS NOT NULL THEN 1 ELSE 0 END AS has_image,
+              CASE WHEN tdf.id IS NOT NULL THEN 1 ELSE 0 END AS has_doc_pdf
        FROM travel_requests t
        LEFT JOIN travel_images ti ON ti.travel_id = t.row_id
+       LEFT JOIN travel_doc_files tdf ON tdf.travel_id = t.row_id
        ${whereSql}
        ORDER BY t.start_date DESC, t.row_id DESC
        LIMIT ? OFFSET ?`,
@@ -335,10 +337,13 @@ async function getFullTravel(id) {
   const [companions] = await travelPool.query('SELECT * FROM travel_companions WHERE travel_id = ? ORDER BY seq_no ASC', [item.row_id]);
   const [atts] = await travelPool.query('SELECT * FROM travel_attachments WHERE travel_id = ? LIMIT 1', [item.row_id]);
   const [imgs] = await travelPool.query('SELECT mime_type, file_name, image_data FROM travel_images WHERE travel_id = ? LIMIT 1', [item.row_id]);
+  const [docs] = await travelPool.query('SELECT file_name FROM travel_doc_files WHERE travel_id = ? LIMIT 1', [item.row_id]);
   item.companions = companions;
   item.attachment = atts[0] || {};
   item.image_data = imgs[0]?.image_data || '';
   item.image_name = imgs[0]?.file_name || '';
+  item.has_doc_pdf = docs.length > 0;
+  item.doc_pdf_name = docs[0]?.file_name || '';
   return item;
 }
 
@@ -395,6 +400,36 @@ app.get('/api/travels/:id/image', requireAuth, async (req, res) => {
     );
     if (!rows.length) return res.status(404).json({ error: 'ไม่พบรูปภาพประกอบ' });
     res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/travels/:id/doc-pdf', requireAuth, async (req, res) => {
+  try {
+    const item = await getFullTravel(req.params.id);
+    if (!item) return res.status(404).json({ error: 'ไม่พบคำขอไปราชการ' });
+    const uid = Number(req.session.user.person_id);
+    const isOwner = Number(item.requester_person_id) === uid;
+    const isComp = (item.companions || []).some((c) => Number(c.person_id) === uid);
+    if (!req.session.user.isAdmin && !isOwner && !isComp) {
+      return res.status(403).json({ error: 'คุณไม่มีสิทธิ์เปิดไฟล์แนบของผู้อื่น' });
+    }
+    const [rows] = await travelPool.query(
+      'SELECT file_name, file_data FROM travel_doc_files WHERE travel_id = ? LIMIT 1',
+      [Number(req.params.id)]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'ไม่พบไฟล์หนังสือ PDF ที่แนบไว้' });
+    const raw = String(rows[0].file_data || '');
+    const base64 = raw.replace(/^data:application\/pdf;base64,/i, '');
+    const buf = Buffer.from(base64, 'base64');
+    const fname = rows[0].file_name || `attachment-${req.params.id}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `${req.query.download === '1' ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(fname)}`
+    );
+    res.send(buf);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -568,6 +603,17 @@ async function saveTravelDetails(travelId, b) {
         [travelId, m[1], String(b.image_name || ''), b.image_data]
       );
     }
+  }
+
+  if (b.doc_pdf_data === '__REMOVE__') {
+    await travelPool.query('DELETE FROM travel_doc_files WHERE travel_id = ?', [travelId]);
+  } else if (typeof b.doc_pdf_data === 'string' && b.doc_pdf_data.startsWith('data:application/pdf;base64,')) {
+    await travelPool.query(
+      `INSERT INTO travel_doc_files (travel_id, mime_type, file_name, file_data)
+       VALUES (?, 'application/pdf', ?, ?)
+       ON DUPLICATE KEY UPDATE file_name = VALUES(file_name), file_data = VALUES(file_data)`,
+      [travelId, String(b.doc_pdf_name || 'document.pdf'), b.doc_pdf_data]
+    );
   }
 }
 
