@@ -60,26 +60,10 @@
         </div>
       </header>
 
-      <section class="stats-grid no-print">
-        <div class="kpi-tile kpi-indigo admin-only hidden" onclick="switchTab('list')" style="cursor:pointer;">
-          <span class="kpi-cap"><span>คำขอ / อบรมทั้งหมด</span><span>📋</span></span>
-          <strong id="statTotal">-</strong>
-        </div>
+      <section class="stats-grid no-print" style="grid-template-columns:minmax(240px, 340px);">
         <div class="kpi-tile kpi-cyan" onclick="switchTab('mine')" style="cursor:pointer;">
           <span class="kpi-cap"><span>ประวัติอบรมของคุณ</span><span>🎓</span></span>
           <strong id="statMine">-</strong>
-        </div>
-        <div class="kpi-tile kpi-amber admin-only hidden" onclick="filterByStatus(0)" style="cursor:pointer;">
-          <span class="kpi-cap"><span>รออนุมัติ</span><span>⏳</span></span>
-          <strong id="statPending">-</strong>
-        </div>
-        <div class="kpi-tile kpi-emerald admin-only hidden" onclick="filterByStatus(1)" style="cursor:pointer;">
-          <span class="kpi-cap"><span>อนุมัติแล้ว</span><span>✅</span></span>
-          <strong id="statApproved">-</strong>
-        </div>
-        <div class="kpi-tile kpi-rose admin-only hidden">
-          <span class="kpi-cap"><span>งบประมาณการ (บาท)</span><span>💰</span></span>
-          <strong id="statBudget">-</strong>
         </div>
       </section>
 

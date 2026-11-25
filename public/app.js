@@ -109,11 +109,12 @@ async function loadMaster() {
 
 async function loadStats() {
   const s = await api('/api/stats');
-  document.getElementById('statTotal').textContent = Number(s.total || 0).toLocaleString();
-  document.getElementById('statMine').textContent = state.user ? `${Number(s.myCount || 0).toLocaleString()} ครั้ง` : '-';
-  document.getElementById('statPending').textContent = Number(s.pending || 0).toLocaleString();
-  document.getElementById('statApproved').textContent = Number(s.approved || 0).toLocaleString();
-  document.getElementById('statBudget').textContent = Number(s.budgetEstimated || 0).toLocaleString();
+  const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  setTxt('statTotal', Number(s.total || 0).toLocaleString());
+  setTxt('statMine', state.user ? `เคยอบรม ${Number(s.myCount || 0).toLocaleString()} ครั้ง` : '-');
+  setTxt('statPending', Number(s.pending || 0).toLocaleString());
+  setTxt('statApproved', Number(s.approved || 0).toLocaleString());
+  setTxt('statBudget', Number(s.budgetEstimated || 0).toLocaleString());
   const badge = document.getElementById('adminPendingBadge');
   if (badge) {
     const gp = Number(s.globalPending || 0);
