@@ -357,8 +357,28 @@
         </div>
 
         <div id="adminPane-approve" class="glass-panel">
+          <section class="stats-grid no-print" style="margin-bottom:18px;">
+            <div class="kpi-tile kpi-indigo" onclick="document.getElementById('adminStatusFilter').value='';loadAdminList(1);" style="cursor:pointer;">
+              <span class="kpi-cap"><span>คำขอ / อบรมทั้งหมด</span><span>📋</span></span>
+              <strong id="adminStatTotal">-</strong>
+            </div>
+            <div class="kpi-tile kpi-amber" onclick="document.getElementById('adminStatusFilter').value='0';loadAdminList(1);" style="cursor:pointer;">
+              <span class="kpi-cap"><span>รออนุมัติ</span><span>⏳</span></span>
+              <strong id="adminStatPending">-</strong>
+            </div>
+            <div class="kpi-tile kpi-emerald" onclick="document.getElementById('adminStatusFilter').value='1';loadAdminList(1);" style="cursor:pointer;">
+              <span class="kpi-cap"><span>อนุมัติแล้ว</span><span>✅</span></span>
+              <strong id="adminStatApproved">-</strong>
+            </div>
+            <div class="kpi-tile kpi-rose">
+              <span class="kpi-cap"><span>งบประมาณการ (บาท)</span><span>💰</span></span>
+              <strong id="adminStatBudget">-</strong>
+            </div>
+          </section>
+
           <div class="panel-head">
             <h2>🛡️ เมนูหลังบ้าน • จัดการอนุมัติคำขอไปราชการทั้งหมด</h2>
+            <button type="button" class="btn-aurora" onclick="approveAllPending()">✅ อนุมัติทั้งหมด (รายการรออนุมัติ)</button>
           </div>
           <div class="filter-bar no-print">
             <input type="text" id="adminQ" placeholder="ค้นหา: ชื่อผู้ขอ, เรื่อง, สถานที่, เลขที่หนังสือ..." onkeydown="if(event.key==='Enter')loadAdminList(1)" />

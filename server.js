@@ -701,6 +701,33 @@ app.put('/api/travels/:id', requireAuth, async (req, res) => {
   }
 });
 
+app.post('/api/travels/approve-all', requireAdmin, async (req, res) => {
+  try {
+    const [pendingRows] = await travelPool.query(
+      'SELECT row_id, hrd_train_data_id FROM travel_requests WHERE status = 0'
+    );
+    if (!pendingRows.length) {
+      return res.json({ ok: true, count: 0 });
+    }
+    const [result] = await travelPool.query(
+      `UPDATE travel_requests
+       SET status = 1, approver_name = ?, approved_at = NOW()
+       WHERE status = 0`,
+      [req.session.user.fullName]
+    );
+    const hrdIds = pendingRows.map((r) => Number(r.hrd_train_data_id || 0)).filter((id) => id > 0);
+    if (hrdIds.length) {
+      await hrdPool.query(
+        'UPDATE hrd_train_data SET allow_id = 2 WHERE train_data_id IN (?)',
+        [hrdIds]
+      ).catch(() => {});
+    }
+    res.json({ ok: true, count: Number(result.affectedRows || pendingRows.length) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.patch('/api/travels/:id/approve', requireAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);

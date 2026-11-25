@@ -115,6 +115,10 @@ async function loadStats() {
   setTxt('statPending', Number(s.pending || 0).toLocaleString());
   setTxt('statApproved', Number(s.approved || 0).toLocaleString());
   setTxt('statBudget', Number(s.budgetEstimated || 0).toLocaleString());
+  setTxt('adminStatTotal', Number(s.total || 0).toLocaleString());
+  setTxt('adminStatPending', Number(s.pending || 0).toLocaleString());
+  setTxt('adminStatApproved', Number(s.approved || 0).toLocaleString());
+  setTxt('adminStatBudget', Number(s.budgetEstimated || 0).toLocaleString());
   const badge = document.getElementById('adminPendingBadge');
   if (badge) {
     const gp = Number(s.globalPending || 0);
@@ -670,6 +674,19 @@ async function approveTravel(id, status) {
   await api(`/api/travels/${id}/approve`, { method: 'PATCH', body: JSON.stringify({ status }) });
   loadStats();
   loadAdminList(1);
+}
+
+async function approveAllPending() {
+  const pendTxt = document.getElementById('adminStatPending')?.textContent || '';
+  if (!confirm(`ยืนยันการอนุมัติคำขอที่ "รออนุมัติ" ทั้งหมด (${pendTxt} รายการ) ?`)) return;
+  try {
+    const res = await api('/api/travels/approve-all', { method: 'POST' });
+    alert(`อนุมัติเรียบร้อยแล้ว ${Number(res.count || 0).toLocaleString()} รายการ`);
+    await loadStats();
+    loadAdminList(1);
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 async function loadPersons() {
