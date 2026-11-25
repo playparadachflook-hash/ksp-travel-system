@@ -150,187 +150,241 @@
 
           <form id="travelForm" autocomplete="off" onsubmit="submitTravel(event)">
             <input type="hidden" id="fRowId" />
-            <div class="form-section-title">1. ข้อมูลบันทึกข้อความขออนุมัติไปราชการ (หน้า 1–2)</div>
-            <div class="form-grid">
-              <div class="form-group">
-                <label>ประเภทการไปราชการ (แบบฟอร์มบันทึกข้อความ) *</label>
-                <select id="fMemoScope" required>
-                  <option value="in_province">ไปราชการในเขตจังหวัด (เรียน ผู้อำนวยการโรงพยาบาลฯ)</option>
-                  <option value="out_province">ไปราชการนอกเขตจังหวัด (เรียน นายแพทย์สาธารณสุขจังหวัดสกลนคร)</option>
-                </select>
+
+            <!-- 4-STEP DOCUMENT WIZARD -->
+            <div class="step-wizard no-print" id="travelStepWizard">
+              <div class="step-wizard-line"><div class="step-wizard-line-fill" id="stepWizardFill" style="width:0%;"></div></div>
+              <div class="step-item active" data-step="1" onclick="goWizardStep(1)">
+                <div class="step-circle-ico">📄</div>
+                <div class="step-title">บันทึกข้อความ (หลัก)</div>
+                <div class="step-desc">เรื่อง สถานที่ วันที่ และรายชื่อผู้ร่วมเดินทาง</div>
+                <div class="step-num-badge">01</div>
               </div>
-              <div class="form-group">
-                <label>ประเภทกิจกรรม</label>
-                <select id="fTravelType">
-                  <option value="ประชุม/สัมมนา">ประชุม/สัมมนา</option>
-                  <option value="อบรม/ประชุมวิชาการ">อบรม/ประชุมวิชาการ</option>
-                  <option value="นิเทศงาน/ตรวจราชการ">นิเทศงาน/ตรวจราชการ</option>
-                  <option value="ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ">ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ</option>
-                  <option value="อื่นๆ">อื่นๆ</option>
-                </select>
+              <div class="step-item" data-step="2" onclick="goWizardStep(2)">
+                <div class="step-circle-ico">🏛️</div>
+                <div class="step-title">นอกเขตจังหวัด / ผู้ลงนาม</div>
+                <div class="step-desc">หนังสือเรียน นพ.สสจ. หัวหน้ากลุ่มงาน &amp; รูปภาพ</div>
+                <div class="step-num-badge">02</div>
               </div>
-              <div class="form-group">
-                <label>เลขที่หนังสือ (ที่ สน ๐๐๓๓.๓๐๑/...)</label>
-                <input type="text" id="fDocNo" placeholder="เช่น สน 0033.301/1234" />
+              <div class="step-item" data-step="3" onclick="goWizardStep(3)">
+                <div class="step-circle-ico">📎</div>
+                <div class="step-title">ใบแนบขออนุมัติ</div>
+                <div class="step-desc">ประวัติการประชุม ความจำเป็น ผู้แทน &amp; แผนงาน</div>
+                <div class="step-num-badge">03</div>
               </div>
-              <div class="form-group">
-                <label>วันที่บันทึกข้อความ *</label>
-                <input type="date" id="fMemoDate" required />
-              </div>
-              <div class="form-group full">
-                <label>เรื่อง / หลักสูตรที่ขออนุมัติไปราชการ *</label>
-                <input type="text" id="fSubject" required placeholder="ระบุหัวข้อการประชุม / สัมมนา / อบรม..." />
-              </div>
-              <div class="form-group">
-                <label>หน่วยงานผู้จัด (ได้รับแจ้งจาก)</label>
-                <input type="text" id="fOrganizer" placeholder="เช่น สำนักงานสาธารณสุขจังหวัดสกลนคร" />
-              </div>
-              <div class="form-group">
-                <label>กลุ่มงาน / หน่วยงานผู้ขอ</label>
-                <input type="text" id="fRequestDept" placeholder="เช่น กลุ่มงานสุขภาพดิจิทัล" />
-              </div>
-              <div class="form-group">
-                <label>สถานที่ไปราชการ *</label>
-                <input type="text" id="fDestination" required placeholder="เช่น โรงแรมดุสิต อ.เมือง จ.สกลนคร" />
-              </div>
-              <div class="form-group">
-                <label>จังหวัดปลายทาง (คำนวณระยะทาง &amp; ค่าพาหนะอัตโนมัติ)</label>
-                <select id="fProvinceId" onchange="onTravelAutoCalc()"><option value="">-- เลือกจังหวัด --</option></select>
-              </div>
-              <div class="form-group">
-                <label>ตั้งแต่วันที่ *</label>
-                <input type="date" id="fStartDate" required onchange="recalcDaysAndTotals()" />
-              </div>
-              <div class="form-group">
-                <label>ถึงวันที่ *</label>
-                <input type="date" id="fEndDate" required onchange="recalcDaysAndTotals()" />
-              </div>
-              <div class="form-group">
-                <label>จำนวนวัน</label>
-                <input type="number" step="0.5" min="0.5" id="fTotalDays" value="1" />
-              </div>
-              <div class="form-group">
-                <label>เดินทางโดยพาหนะ *</label>
-                <select id="fTransport" onchange="onTravelAutoCalc()">
-                  <option value="รถโรงพยาบาล">รถโรงพยาบาล</option>
-                  <option value="รถยนต์ส่วนตัว">รถยนต์ส่วนตัว</option>
-                  <option value="รถประจำทาง">รถประจำทาง / รถโดยสาร</option>
-                  <option value="เครื่องบิน">เครื่องบิน</option>
-                  <option value="รถไฟ">รถไฟ</option>
-                  <option value="เดินทางไปเอง">เดินทางไปเอง</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>ระยะทางไป-กลับ (กม.)</label>
-                <input type="number" step="0.1" min="0" id="fDistanceKm" value="0" oninput="onDistanceInput()" />
-              </div>
-              <div class="form-group">
-                <label>ขออนุมัติใช้งบประมาณจาก (หน่วยงานผู้จัด / แหล่งอื่น)</label>
-                <input type="text" id="fOrgBudgetText" placeholder="ระบุหน่วยงานผู้จัด (ถ้ามี)" />
+              <div class="step-item" data-step="4" onclick="goWizardStep(4)">
+                <div class="step-circle-ico">💰</div>
+                <div class="step-title">ประมาณการค่าใช้จ่าย</div>
+                <div class="step-desc">เบี้ยเลี้ยง ที่พัก พาหนะ ลงทะเบียน รายบุคคล</div>
+                <div class="step-num-badge">04</div>
               </div>
             </div>
 
-            <div class="form-section-title" style="margin-top:20px;">2. รายชื่อผู้ร่วมเดินทาง &amp; ประมาณการค่าใช้จ่ายรายบุคคล (หน้า 4)</div>
-            <p class="section-hint">พิมพ์ชื่อ-นามสกุลเพื่อค้นหาบุคลากรจาก <code>db_hrd</code> อัตโนมัติ (รายการที่บันทึกจะไปขึ้นในประวัติอบรมของทุกคนที่ร่วมเดินทางด้วย)</p>
-            <div class="table-wrap" style="margin-bottom:12px;">
-              <table class="est-table">
-                <thead>
-                  <tr>
-                    <th style="width:36px;">ที่</th>
-                    <th style="min-width:210px;">ชื่อ-นามสกุล (พิมพ์ค้นหา)</th>
-                    <th style="min-width:150px;">ตำแหน่ง</th>
-                    <th style="width:95px;">ระดับ</th>
-                    <th style="width:82px;">เบี้ยเลี้ยง</th>
-                    <th style="width:82px;">ที่พัก</th>
-                    <th style="width:82px;">พาหนะ</th>
-                    <th style="width:82px;">ลงทะเบียน</th>
-                    <th style="width:74px;">อื่น ๆ</th>
-                    <th style="width:86px;">รวม</th>
-                    <th style="width:36px;"></th>
-                  </tr>
-                </thead>
-                <tbody id="companionsEstTbody"></tbody>
-                <tfoot>
-                  <tr style="background:#f0fdfa;font-weight:700;">
-                    <td colspan="4" style="text-align:right;">รวมเป็นเงินทั้งสิ้น (เงินบำรุงโรงพยาบาลฯ):</td>
-                    <td id="sumAllow">0.00</td>
-                    <td id="sumHotel">0.00</td>
-                    <td id="sumTravel">0.00</td>
-                    <td id="sumReg">0.00</td>
-                    <td id="sumOther">0.00</td>
-                    <td id="sumTotal" style="color:#0f766e;">0.00</td>
-                    <td></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-            <button type="button" class="btn-soft btn-sm" onclick="addCompanionRow()">+ เพิ่มผู้ร่วมเดินทาง</button>
-
-            <div class="form-section-title" style="margin-top:20px;">3. ข้อมูลใบแนบการขออนุมัติไปราชการ ประชุม/อบรม (หน้า 3)</div>
-            <div class="form-grid">
-              <div class="form-group full">
-                <label>ประวัติการไปประชุมเรื่องนี้</label>
-                <div style="display:flex;gap:18px;flex-wrap:wrap;padding:6px 0;">
-                  <label style="font-weight:400;display:flex;gap:6px;align-items:center;"><input type="radio" name="attHistory" value="ever" /> เคยไปแล้ว</label>
-                  <label style="font-weight:400;display:flex;gap:6px;align-items:center;"><input type="radio" name="attHistory" value="never" checked /> ไม่เคยไป</label>
-                  <label style="font-weight:400;display:flex;gap:6px;align-items:center;"><input type="radio" name="attHistory" value="others_ever" /> ผู้อื่นเคยไปแล้ว</label>
+            <!-- STEP 01: MEMO IN & CORE DETAILS -->
+            <div class="wizard-pane" id="wizardStep-1">
+              <div class="form-section-title">ขั้นตอนที่ 01 • บันทึกข้อความขออนุมัติไปราชการ (ข้อมูลหลัก &amp; ผู้ร่วมเดินทาง)</div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label>ประเภทการไปราชการ (แบบฟอร์มบันทึกข้อความ) *</label>
+                  <select id="fMemoScope" required>
+                    <option value="in_province">ไปราชการในเขตจังหวัด (เรียน ผู้อำนวยการโรงพยาบาลฯ)</option>
+                    <option value="out_province">ไปราชการนอกเขตจังหวัด (เรียน นายแพทย์สาธารณสุขจังหวัดสกลนคร)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>ประเภทกิจกรรม</label>
+                  <select id="fTravelType">
+                    <option value="ประชุม/สัมมนา">ประชุม/สัมมนา</option>
+                    <option value="อบรม/ประชุมวิชาการ">อบรม/ประชุมวิชาการ</option>
+                    <option value="นิเทศงาน/ตรวจราชการ">นิเทศงาน/ตรวจราชการ</option>
+                    <option value="ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ">ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ</option>
+                    <option value="อื่นๆ">อื่นๆ</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>เลขที่หนังสือ (ที่ สน ๐๐๓๓.๓๐๑/...)</label>
+                  <input type="text" id="fDocNo" placeholder="เช่น สน 0033.301/1234" />
+                </div>
+                <div class="form-group">
+                  <label>วันที่บันทึกข้อความ *</label>
+                  <input type="date" id="fMemoDate" required />
+                </div>
+                <div class="form-group full">
+                  <label>เรื่อง / หลักสูตรที่ขออนุมัติไปราชการ *</label>
+                  <input type="text" id="fSubject" required placeholder="ระบุหัวข้อการประชุม / สัมมนา / อบรม..." />
+                </div>
+                <div class="form-group">
+                  <label>หน่วยงานผู้จัด (ได้รับแจ้งจาก)</label>
+                  <input type="text" id="fOrganizer" placeholder="เช่น สำนักงานสาธารณสุขจังหวัดสกลนคร" />
+                </div>
+                <div class="form-group">
+                  <label>กลุ่มงาน / หน่วยงานผู้ขอ</label>
+                  <input type="text" id="fRequestDept" placeholder="เช่น กลุ่มงานสุขภาพดิจิทัล" />
+                </div>
+                <div class="form-group">
+                  <label>สถานที่ไปราชการ *</label>
+                  <input type="text" id="fDestination" required placeholder="เช่น โรงแรมดุสิต อ.เมือง จ.สกลนคร" />
+                </div>
+                <div class="form-group">
+                  <label>จังหวัดปลายทาง (คำนวณระยะทาง &amp; ค่าพาหนะอัตโนมัติ)</label>
+                  <select id="fProvinceId" onchange="onTravelAutoCalc()"><option value="">-- เลือกจังหวัด --</option></select>
+                </div>
+                <div class="form-group">
+                  <label>ตั้งแต่วันที่ *</label>
+                  <input type="date" id="fStartDate" required onchange="recalcDaysAndTotals()" />
+                </div>
+                <div class="form-group">
+                  <label>ถึงวันที่ *</label>
+                  <input type="date" id="fEndDate" required onchange="recalcDaysAndTotals()" />
+                </div>
+                <div class="form-group">
+                  <label>จำนวนวัน</label>
+                  <input type="number" step="0.5" min="0.5" id="fTotalDays" value="1" />
+                </div>
+                <div class="form-group">
+                  <label>เดินทางโดยพาหนะ *</label>
+                  <select id="fTransport" onchange="onTravelAutoCalc()">
+                    <option value="รถโรงพยาบาล">รถโรงพยาบาล</option>
+                    <option value="รถยนต์ส่วนตัว">รถยนต์ส่วนตัว</option>
+                    <option value="รถประจำทาง">รถประจำทาง / รถโดยสาร</option>
+                    <option value="เครื่องบิน">เครื่องบิน</option>
+                    <option value="รถไฟ">รถไฟ</option>
+                    <option value="เดินทางไปเอง">เดินทางไปเอง</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>ระยะทางไป-กลับ (กม.)</label>
+                  <input type="number" step="0.1" min="0" id="fDistanceKm" value="0" oninput="onDistanceInput()" />
+                </div>
+                <div class="form-group">
+                  <label>ขออนุมัติใช้งบประมาณจาก (หน่วยงานผู้จัด / แหล่งอื่น)</label>
+                  <input type="text" id="fOrgBudgetText" placeholder="ระบุหน่วยงานผู้จัด (ถ้ามี)" />
                 </div>
               </div>
-              <div class="form-group full">
-                <label>ความเหมาะสม / ความจำเป็นที่ต้องไป</label>
-                <textarea id="fAttNecessity" rows="2" placeholder="ระบุเหตุผลความจำเป็น..."></textarea>
-              </div>
-              <div class="form-group">
-                <label>ระหว่างที่ไป ผู้ที่ปฏิบัติงานแทน คือ</label>
-                <input type="text" id="fAttDelegate" list="personsDatalist" placeholder="พิมพ์เลือกหรือระบุชื่อผู้ปฏิบัติงานแทน..." />
-              </div>
-              <div class="form-group">
-                <label>ผู้ที่จะมาถ่ายทอดความรู้ + ประสบการณ์</label>
-                <input type="text" id="fAttSharer" list="personsDatalist" placeholder="ระบุชื่อผู้ถ่ายทอดความรู้..." />
-              </div>
-              <div class="form-group full">
-                <label>ประโยชน์ที่คาดว่าจะได้รับ</label>
-                <textarea id="fAttBenefit" rows="2" placeholder="ระบุประโยชน์ที่คาดว่าจะได้รับ..."></textarea>
-              </div>
-              <div class="form-group">
-                <label>แผนงานโครงการหลังการประชุม ข้อ 1</label>
-                <input type="text" id="fAttPlan1" />
-              </div>
-              <div class="form-group">
-                <label>แผนงานโครงการหลังการประชุม ข้อ 2</label>
-                <input type="text" id="fAttPlan2" />
-              </div>
-              <div class="form-group full">
-                <label>แผนงานโครงการหลังการประชุม ข้อ 3</label>
-                <input type="text" id="fAttPlan3" />
-              </div>
-              <div class="form-group full">
-                <label>รูปภาพประกอบการอบรม / ไปราชการ (จำกัด 1 รูป)</label>
-                <input type="hidden" id="fImageData" />
-                <input type="hidden" id="fImageName" />
-                <input type="file" id="fImageFile" accept="image/*" onchange="onTravelImageSelected(this)" />
-                <div id="fImagePreviewWrap" class="hidden" style="margin-top:8px;">
-                  <img id="fImagePreview" style="max-width:320px;max-height:180px;border-radius:10px;border:1px solid #cbd5e1;" alt="รูปภาพประกอบ" />
-                  <div style="margin-top:6px;"><button type="button" class="btn-danger btn-sm" onclick="removeTravelImage()">🗑️ ลบรูปภาพ</button></div>
-                </div>
-              </div>
+
+              <div class="form-section-title" style="margin-top:18px;">รายชื่อผู้ร่วมเดินทาง (1–6 คนขึ้นไป)</div>
+              <p class="section-hint">พิมพ์ชื่อ-นามสกุลเพื่อค้นหาบุคลากรจาก <code>db_hrd</code> อัตโนมัติ (รายการที่บันทึกจะไปขึ้นในประวัติอบรมของทุกคนที่ร่วมเดินทางด้วย)</p>
+              <div id="step1CompanionsBox" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
+              <button type="button" class="btn-soft btn-sm" onclick="addCompanionRow()">+ เพิ่มผู้ร่วมเดินทาง</button>
             </div>
 
-            <details class="director-details" style="margin-top:16px;">
-              <summary>⚙️ ผู้ขออนุมัติ / หัวหน้ากลุ่มงาน / ผู้อำนวยการผู้ลงนาม</summary>
-              <div class="form-grid" style="margin-top:10px;">
+            <!-- STEP 02: OUT-OF-PROVINCE / SIGNATURES & IMAGE -->
+            <div class="wizard-pane hidden" id="wizardStep-2">
+              <div class="form-section-title">ขั้นตอนที่ 02 • ข้อมูลสำหรับบันทึกข้อความนอกเขตจังหวัด ผู้ลงนาม &amp; รูปภาพประกอบ</div>
+              <p class="section-hint">ใช้สำหรับหนังสือเรียน <strong>นายแพทย์สาธารณสุขจังหวัดสกลนคร</strong> และส่วนลงนามหัวหน้ากลุ่มงาน / ผู้อำนวยการ (หากไปในเขตจังหวัดสามารถตรวจสอบแล้วกดถัดไปได้)</p>
+              <div class="form-grid">
                 <div class="form-group"><label>ชื่อผู้ขออนุมัติ</label><input type="text" id="fReqName" /></div>
                 <div class="form-group"><label>ตำแหน่งผู้ขออนุมัติ</label><input type="text" id="fReqPos" /></div>
-                <div class="form-group"><label>ชื่อหัวหน้ากลุ่มงาน</label><input type="text" id="fHeadName" placeholder="ระบุสำหรับหน้า 2 (ถ้ามี)" /></div>
-                <div class="form-group"><label>ตำแหน่งหัวหน้ากลุ่มงาน</label><input type="text" id="fHeadPos" /></div>
-                <div class="form-group"><label>ชื่อผู้อำนวยการ</label><input type="text" id="fDirName" value="นางณัฐปภัสร์ นวัตชัยศิริกุล" /></div>
+                <div class="form-group"><label>ชื่อหัวหน้ากลุ่มงาน (ความเห็นของหัวหน้ากลุ่มงาน)</label><input type="text" id="fHeadName" placeholder="ระบุชื่อหัวหน้ากลุ่มงาน (ถ้ามี)" /></div>
+                <div class="form-group"><label>ตำแหน่งหัวหน้ากลุ่มงาน</label><input type="text" id="fHeadPos" placeholder="เช่น หัวหน้ากลุ่มงาน..." /></div>
+                <div class="form-group"><label>ชื่อผู้อำนวยการผู้ลงนาม</label><input type="text" id="fDirName" value="นางณัฐปภัสร์ นวัตชัยศิริกุล" /></div>
                 <div class="form-group"><label>ตำแหน่งผู้อำนวยการ</label><input type="text" id="fDirPos1" value="นายแพทย์ชำนาญการพิเศษ รักษาการในตำแหน่ง" /></div>
+                <div class="form-group full">
+                  <label>รูปภาพประกอบการอบรม / ไปราชการ (จำกัด 1 รูป)</label>
+                  <input type="hidden" id="fImageData" />
+                  <input type="hidden" id="fImageName" />
+                  <input type="file" id="fImageFile" accept="image/*" onchange="onTravelImageSelected(this)" />
+                  <div id="fImagePreviewWrap" class="hidden" style="margin-top:8px;">
+                    <img id="fImagePreview" style="max-width:320px;max-height:180px;border-radius:10px;border:1px solid #cbd5e1;" alt="รูปภาพประกอบ" />
+                    <div style="margin-top:6px;"><button type="button" class="btn-danger btn-sm" onclick="removeTravelImage()">🗑️ ลบรูปภาพ</button></div>
+                  </div>
+                </div>
               </div>
-            </details>
+            </div>
 
-            <div class="form-actions">
-              <button type="submit" class="btn-aurora">💾 บันทึกข้อมูลอบรม / ไปราชการ</button>
-              <button type="button" class="btn-soft" onclick="switchTab('list')">ยกเลิก</button>
+            <!-- STEP 03: ATTACHMENT FORM (PAGE 3) -->
+            <div class="wizard-pane hidden" id="wizardStep-3">
+              <div class="form-section-title">ขั้นตอนที่ 03 • ใบแนบการขออนุมัติไปราชการ ประชุม/อบรม (เอกสารหน้าที่ 3)</div>
+              <div class="form-grid">
+                <div class="form-group full">
+                  <label>ประวัติการไปประชุมเรื่องนี้</label>
+                  <div style="display:flex;gap:18px;flex-wrap:wrap;padding:6px 0;">
+                    <label style="font-weight:400;display:flex;gap:6px;align-items:center;"><input type="radio" name="attHistory" value="ever" /> เคยไปแล้ว</label>
+                    <label style="font-weight:400;display:flex;gap:6px;align-items:center;"><input type="radio" name="attHistory" value="never" checked /> ไม่เคยไป</label>
+                    <label style="font-weight:400;display:flex;gap:6px;align-items:center;"><input type="radio" name="attHistory" value="others_ever" /> ผู้อื่นเคยไปแล้ว</label>
+                  </div>
+                </div>
+                <div class="form-group full">
+                  <label>ความเหมาะสม / ความจำเป็นที่ต้องไป</label>
+                  <textarea id="fAttNecessity" rows="2" placeholder="ระบุเหตุผลความจำเป็น..."></textarea>
+                </div>
+                <div class="form-group">
+                  <label>ระหว่างที่ไป ผู้ที่ปฏิบัติงานแทน คือ</label>
+                  <input type="text" id="fAttDelegate" list="personsDatalist" placeholder="พิมพ์เลือกหรือระบุชื่อผู้ปฏิบัติงานแทน..." />
+                </div>
+                <div class="form-group">
+                  <label>ผู้ที่จะมาถ่ายทอดความรู้ + ประสบการณ์</label>
+                  <input type="text" id="fAttSharer" list="personsDatalist" placeholder="ระบุชื่อผู้ถ่ายทอดความรู้..." />
+                </div>
+                <div class="form-group full">
+                  <label>ประโยชน์ที่คาดว่าจะได้รับ</label>
+                  <textarea id="fAttBenefit" rows="2" placeholder="ระบุประโยชน์ที่คาดว่าจะได้รับ..."></textarea>
+                </div>
+                <div class="form-group">
+                  <label>แผนงานโครงการหลังการประชุม ข้อ 1</label>
+                  <input type="text" id="fAttPlan1" />
+                </div>
+                <div class="form-group">
+                  <label>แผนงานโครงการหลังการประชุม ข้อ 2</label>
+                  <input type="text" id="fAttPlan2" />
+                </div>
+                <div class="form-group full">
+                  <label>แผนงานโครงการหลังการประชุม ข้อ 3</label>
+                  <input type="text" id="fAttPlan3" />
+                </div>
+              </div>
+            </div>
+
+            <!-- STEP 04: EXPENSE ESTIMATE TABLE (PAGE 4) -->
+            <div class="wizard-pane hidden" id="wizardStep-4">
+              <div class="form-section-title">ขั้นตอนที่ 04 • ประมาณการค่าใช้จ่ายในการเดินทางไปราชการ (เอกสารหน้าที่ 4)</div>
+              <p class="section-hint">กรอกค่าใช้จ่ายรายบุคคล (เบี้ยเลี้ยง, ที่พัก, พาหนะ, ลงทะเบียน, อื่น ๆ) ระบบจะคำนวณยอดรวมรายคนและรวมทั้งสิ้นให้อัตโนมัติ</p>
+              <div class="table-wrap" style="margin-bottom:12px;">
+                <table class="est-table">
+                  <thead>
+                    <tr>
+                      <th style="width:36px;">ที่</th>
+                      <th style="min-width:190px;">ชื่อ-นามสกุล</th>
+                      <th style="min-width:140px;">ตำแหน่ง</th>
+                      <th style="width:95px;">ระดับ</th>
+                      <th style="width:82px;">เบี้ยเลี้ยง</th>
+                      <th style="width:82px;">ที่พัก</th>
+                      <th style="width:82px;">พาหนะ</th>
+                      <th style="width:82px;">ลงทะเบียน</th>
+                      <th style="width:74px;">อื่น ๆ</th>
+                      <th style="width:86px;">รวม</th>
+                      <th style="width:36px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="companionsEstTbody"></tbody>
+                  <tfoot>
+                    <tr style="background:#f0fdfa;font-weight:700;">
+                      <td colspan="4" style="text-align:right;">รวมเป็นเงินทั้งสิ้น (เงินบำรุงโรงพยาบาลฯ):</td>
+                      <td id="sumAllow">0.00</td>
+                      <td id="sumHotel">0.00</td>
+                      <td id="sumTravel">0.00</td>
+                      <td id="sumReg">0.00</td>
+                      <td id="sumOther">0.00</td>
+                      <td id="sumTotal" style="color:#0f766e;">0.00</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <button type="button" class="btn-soft btn-sm" onclick="addCompanionRow()">+ เพิ่มรายชื่อผู้ไปราชการ</button>
+            </div>
+
+            <!-- WIZARD NAVIGATION FOOTER -->
+            <div class="wizard-nav-bar no-print">
+              <div style="display:flex;gap:8px;">
+                <button type="button" class="btn-soft" id="btnWizPrev" onclick="goWizardStep(state.wizardStep - 1)">◀ ย้อนกลับ</button>
+                <button type="button" class="btn-ghost" onclick="switchTab('mine')">ยกเลิก</button>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <button type="button" class="btn-soft hidden" id="btnWizPreview" onclick="previewCurrentStepPdf()">👁️ ดูตัวอย่าง PDF ขั้นตอนนี้</button>
+                <button type="button" class="btn-aurora" id="btnWizNext" onclick="nextWizardStep()">ถัดไป (เอกสารต่อไป) ▶</button>
+                <button type="submit" class="btn-aurora hidden" id="btnWizSubmit">💾 บันทึกข้อมูล &amp; ดูตัวอย่าง PDF ทั้งชุด</button>
+              </div>
             </div>
           </form>
           <datalist id="personsDatalist"></datalist>

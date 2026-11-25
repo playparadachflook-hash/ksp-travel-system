@@ -8,6 +8,7 @@ const state = {
   calMonth: new Date().getMonth() + 1,
   page: 1,
   companions: [],
+  wizardStep: 1,
   pdfTravelId: null,
   pdfMode: 'single',
   pdfForm: 'memo_in',
@@ -338,6 +339,52 @@ function resetTravelForm() {
     allowance_fee: 0, hotel_fee: 0, travel_fee: 0, register_fee: 0, other_fee: 0,
   }];
   renderCompanionsTable();
+  goWizardStep(1);
+}
+
+function goWizardStep(step) {
+  const s = Math.max(1, Math.min(4, Number(step || 1)));
+  state.wizardStep = s;
+  for (let i = 1; i <= 4; i++) {
+    const pane = document.getElementById(`wizardStep-${i}`);
+    if (pane) pane.classList.toggle('hidden', i !== s);
+  }
+  document.querySelectorAll('#travelStepWizard .step-item').forEach((el) => {
+    const idx = Number(el.dataset.step);
+    el.classList.toggle('active', idx === s);
+    el.classList.toggle('done', idx < s);
+  });
+  const fill = document.getElementById('stepWizardFill');
+  if (fill) fill.style.width = `${((s - 1) / 3) * 100}%`;
+
+  const prevBtn = document.getElementById('btnWizPrev');
+  const nextBtn = document.getElementById('btnWizNext');
+  const subBtn = document.getElementById('btnWizSubmit');
+  const pvBtn = document.getElementById('btnWizPreview');
+  if (prevBtn) prevBtn.disabled = s <= 1;
+  if (nextBtn) nextBtn.classList.toggle('hidden', s >= 4);
+  if (subBtn) subBtn.classList.toggle('hidden', s < 4);
+  if (pvBtn) pvBtn.classList.toggle('hidden', !document.getElementById('fRowId')?.value);
+  if (s === 4 || s === 1) renderCompanionsTable();
+}
+
+function nextWizardStep() {
+  if (state.wizardStep === 1) {
+    const subj = document.getElementById('fSubject')?.value.trim();
+    const dest = document.getElementById('fDestination')?.value.trim();
+    if (!subj || !dest) {
+      alert('กรุณากรอกเรื่อง และสถานที่ไปราชการก่อนดำเนินการต่อ');
+      return;
+    }
+  }
+  goWizardStep(state.wizardStep + 1);
+}
+
+function previewCurrentStepPdf() {
+  const id = document.getElementById('fRowId')?.value;
+  if (!id) return;
+  const formMap = { 1: 'memo_in', 2: 'memo_out', 3: 'attachment', 4: 'estimate' };
+  openTravelPdf(id, formMap[state.wizardStep] || 'memo_in', document.getElementById('fSubject')?.value || '');
 }
 
 function addCompanionRow() {
@@ -355,6 +402,22 @@ function removeCompanionRow(idx) {
 }
 
 function renderCompanionsTable() {
+  const step1Box = document.getElementById('step1CompanionsBox');
+  if (step1Box) {
+    step1Box.innerHTML = state.companions.map((c, idx) => `
+      <div style="display:grid;grid-template-columns:30px 1.2fr 1fr 34px;gap:8px;align-items:center;">
+        <span style="text-align:center;font-weight:700;color:#475569;">${idx + 1}.</span>
+        <div class="comp-ac-wrap">
+          <input type="text" class="est-input" value="${esc(c.full_name || '')}" placeholder="🔍 พิมพ์ค้นหาชื่อ-นามสกุล คนที่ ${idx + 1}..."
+                 oninput="onCompNameInput(${idx}, this.value, 's1')" onfocus="onCompNameInput(${idx}, this.value, 's1')" onblur="hideCompDrop(${idx}, 's1')" />
+          <div id="compDrop_s1_${idx}" class="comp-ac-dropdown hidden"></div>
+        </div>
+        <input type="text" class="est-input" value="${esc(c.position || '')}" oninput="state.companions[${idx}].position=this.value" placeholder="ตำแหน่ง" />
+        <button type="button" class="btn-danger btn-sm" onclick="removeCompanionRow(${idx})">✕</button>
+      </div>
+    `).join('');
+  }
+
   const tbody = document.getElementById('companionsEstTbody');
   tbody.innerHTML = state.companions.map((c, idx) => {
     const rowSum = Number(c.allowance_fee || 0) + Number(c.hotel_fee || 0) + Number(c.travel_fee || 0) + Number(c.register_fee || 0) + Number(c.other_fee || 0);
@@ -383,10 +446,11 @@ function renderCompanionsTable() {
   recalcDaysAndTotals();
 }
 
-function onCompNameInput(idx, val) {
+function onCompNameInput(idx, val, prefix = '') {
   state.companions[idx].full_name = val;
   const q = String(val || '').trim().toLowerCase();
-  const drop = document.getElementById(`compDrop_${idx}`);
+  const dropId = prefix ? `compDrop_${prefix}_${idx}` : `compDrop_${idx}`;
+  const drop = document.getElementById(dropId);
   if (!drop) return;
   const persons = state.master?.persons || [];
   const matches = (q ? persons.filter((p) => `${p.full_name} ${p.position_name}`.toLowerCase().includes(q)) : persons).slice(0, 20);
@@ -408,8 +472,9 @@ function pickCompanion(idx, personId) {
   renderCompanionsTable();
 }
 
-function hideCompDrop(idx) {
-  setTimeout(() => document.getElementById(`compDrop_${idx}`)?.classList.add('hidden'), 150);
+function hideCompDrop(idx, prefix = '') {
+  const dropId = prefix ? `compDrop_${prefix}_${idx}` : `compDrop_${idx}`;
+  setTimeout(() => document.getElementById(dropId)?.classList.add('hidden'), 150);
 }
 
 function onCompFeeInput(idx, field, val) {
@@ -522,6 +587,7 @@ async function editTravel(id) {
     ? item.companions.map((c) => ({ ...c }))
     : [{ person_id: item.requester_person_id || null, full_name: item.requester_name, position: item.requester_position, level_name: '', allowance_fee: item.allowance_cost, hotel_fee: item.hotel_cost, travel_fee: item.travel_cost, register_fee: item.reg_cost, other_fee: item.other_cost }];
   renderCompanionsTable();
+  goWizardStep(1);
   switchTab('create');
 }
 
@@ -594,7 +660,7 @@ async function submitTravel(e) {
     await loadStats();
     switchTab('mine');
     if (savedId) {
-      openTravelPdf(savedId, payload.memo_scope === 'out_province' ? 'memo_out' : 'memo_in', payload.subject);
+      openTravelPdf(savedId, 'all', payload.subject);
     }
   } catch (err) {
     alert(err.message);
