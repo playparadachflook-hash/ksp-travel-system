@@ -374,7 +374,7 @@ function resetTravelForm() {
   document.getElementById('fAttPlan2').value = '';
   document.getElementById('fAttPlan3').value = '';
   document.getElementById('fReqName').value = state.user?.fullName || '';
-  document.getElementById('fReqPos').value = state.user?.position || '';
+  document.getElementById('fReqPos').value = '';
   document.getElementById('fHeadName').value = '';
   document.getElementById('fHeadPos').value = '';
   document.getElementById('fImageData').value = '';
@@ -386,7 +386,7 @@ function resetTravelForm() {
   state.companions = [{
     person_id: state.user?.person_id || null,
     full_name: state.user?.fullName || '',
-    position: state.user?.position || '',
+    position: '',
     level_name: '',
     allowance_fee: 0, hotel_fee: 0, travel_fee: 0, register_fee: 0, other_fee: 0,
   }];
