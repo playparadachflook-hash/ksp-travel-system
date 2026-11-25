@@ -2,18 +2,18 @@ require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const session = require('express-session');
-const db = require('./src/db');
+const { travelPool, hrdPool, md5, ensureDatabaseAndSchema } = require('./src/db');
 const { generateTravelRequestPdf, generateTravelBoardPdf, generateReportSectionPdf } = require('./src/pdf');
 const { registerMophProviderRoutes } = require('./src/mophAuth');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3534);
 
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || 'ksp-travel-system-secret',
+    secret: process.env.SESSION_SECRET || 'ksp-travel-system-secret-2026',
     resave: false,
     saveUninitialized: false,
     cookie: { maxAge: 1000 * 60 * 60 * 12 },
@@ -22,15 +22,13 @@ app.use(
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-function nowSql() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-function generateDocNo(rowId) {
-  const thaiYear = new Date().getFullYear() + 543;
-  return `TRV-${thaiYear}-${String(rowId).padStart(4, '0')}`;
+function calcDays(startDate, endDate) {
+  if (!startDate || !endDate) return 1;
+  const s = new Date(String(startDate).slice(0, 10));
+  const e = new Date(String(endDate).slice(0, 10));
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 1;
+  const diff = Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1;
+  return diff > 0 ? diff : 1;
 }
 
 function requireAuth(req, res, next) {
@@ -47,35 +45,56 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+function buildSessionUser(u) {
+  const fullName = `${u.prename_name || ''}${String(u.fname || '').trim()} ${String(u.lname || '').trim()}`.trim();
+  return {
+    person_id: Number(u.person_id),
+    row_id: Number(u.person_id),
+    username: u.username,
+    fullName,
+    position: u.position_name || '',
+    telephone: u.phone_number || '',
+    unit_id: Number(u.department_id || 0),
+    department_id: Number(u.department_id || 0),
+    department_name: u.department_name || '',
+    role: [1, 2].includes(Number(u.user_groups_id)) ? 'admin' : 'user',
+    isAdmin: [1, 2].includes(Number(u.user_groups_id)),
+  };
+}
+
 // ==================== AUTH ====================
 app.get('/api/auth/me', (req, res) => {
   res.json({ user: req.session.user || null });
 });
 
-app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'กรุณากรอก Username และ Password' });
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
+    }
+    const u = String(username).trim();
+    const pHash = md5(String(password).trim());
+    const [rows] = await hrdPool.query(
+      `SELECT p.person_id, p.fname, p.lname, p.phone_number, p.username, p.user_groups_id,
+              p.department_id, p.position_id, pn.prename_name, pos.position_name, d.department_name
+       FROM hrd_person p
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
+       LEFT JOIN hrd_department d ON d.department_id = p.department_id
+       WHERE p.username = ? AND (p.password = ? OR p.password = ?)
+       LIMIT 1`,
+      [u, pHash, String(password).trim()]
+    );
+    if (!rows.length) {
+      return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+    }
+    req.session.user = buildSessionUser(rows[0]);
+    res.json({ user: req.session.user });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'ไม่สามารถเชื่อมต่อฐานข้อมูลบุคลากรได้' });
   }
-  const user = db
-    .prepare('SELECT row_id, full_name, position, telephone, unit_id, role, username FROM users WHERE username = ? AND password = ?')
-    .get(String(username).trim(), String(password).trim());
-
-  if (!user) {
-    return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
-  }
-
-  req.session.user = {
-    row_id: user.row_id,
-    username: user.username,
-    fullName: user.full_name,
-    position: user.position || '',
-    telephone: user.telephone || '',
-    unit_id: user.unit_id || 0,
-    role: user.role || 'user',
-    isAdmin: user.role === 'admin',
-  };
-  res.json({ user: req.session.user });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -84,64 +103,115 @@ app.post('/api/auth/logout', (req, res) => {
 
 registerMophProviderRoutes(app, {
   resolveSessionUser: async (profile, opdUser) => {
-    const loginname = String(opdUser.loginname || '').trim();
+    const hashCid = String(profile.hash_cid || '').trim().toLowerCase();
     const firstTh = String(profile.firstname_th || '').trim();
     const lastTh = String(profile.lastname_th || '').trim();
-    const fullNameTh = String(profile.name_th || `${firstTh} ${lastTh}` || opdUser.name || loginname).trim();
-
-    let user = db
-      .prepare('SELECT row_id, full_name, position, telephone, unit_id, role, username FROM users WHERE LOWER(username) = LOWER(?) LIMIT 1')
-      .get(loginname);
-    if (!user && firstTh && lastTh) {
-      user = db
-        .prepare('SELECT row_id, full_name, position, telephone, unit_id, role, username FROM users WHERE full_name LIKE ? AND full_name LIKE ? LIMIT 1')
-        .get(`%${firstTh}%`, `%${lastTh}%`);
+    const baseSql = `SELECT p.person_id, p.fname, p.lname, p.phone_number, p.username, p.user_groups_id,
+              p.department_id, p.position_id, pn.prename_name, pos.position_name, d.department_name
+       FROM hrd_person p
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
+       LEFT JOIN hrd_department d ON d.department_id = p.department_id`;
+    let rows = [];
+    if (hashCid) {
+      [rows] = await hrdPool.query(`${baseSql} WHERE LOWER(SHA2(REPLACE(REPLACE(TRIM(p.cid), '-', ''), ' ', ''), 256)) = ? LIMIT 1`, [hashCid]);
     }
-    if (!user) {
-      const info = db
-        .prepare("INSERT INTO users (username, password, full_name, position, telephone, unit_id, role) VALUES (?, '', ?, '', '', 0, 'user')")
-        .run(loginname || `moph_${Date.now()}`, fullNameTh);
-      user = db.prepare('SELECT row_id, full_name, position, telephone, unit_id, role, username FROM users WHERE row_id = ?').get(info.lastInsertRowid);
+    if (!rows.length && opdUser?.cid) {
+      [rows] = await hrdPool.query(`${baseSql} WHERE REPLACE(REPLACE(TRIM(p.cid), '-', ''), ' ', '') = ? LIMIT 1`, [String(opdUser.cid).replace(/[-\s]/g, '')]);
     }
-    return {
-      row_id: user.row_id,
-      username: user.username,
-      fullName: user.full_name,
-      position: user.position || '',
-      telephone: user.telephone || '',
-      unit_id: user.unit_id || 0,
-      role: user.role || 'user',
-      isAdmin: user.role === 'admin',
-    };
+    if (!rows.length && opdUser?.loginname) {
+      [rows] = await hrdPool.query(`${baseSql} WHERE LOWER(p.username) = LOWER(?) LIMIT 1`, [opdUser.loginname]);
+    }
+    if (!rows.length && firstTh && lastTh) {
+      [rows] = await hrdPool.query(`${baseSql} WHERE TRIM(p.fname) LIKE ? AND TRIM(p.lname) LIKE ? LIMIT 1`, [`%${firstTh}%`, `%${lastTh}%`]);
+    }
+    if (!rows.length) return null;
+    return buildSessionUser(rows[0]);
   },
 });
 
-// ==================== STATS ====================
-app.get('/api/stats', (req, res) => {
-  const total = db.prepare('SELECT COUNT(*) AS cnt FROM travel_requests').get().cnt;
-  const rows = db.prepare('SELECT status, COUNT(*) AS cnt FROM travel_requests GROUP BY status').all();
-  const counts = { 0: 0, 1: 0, 2: 0, 6: 0, 9: 0 };
-  for (const r of rows) counts[r.status] = r.cnt;
-
-  const budgetRow = db.prepare('SELECT COALESCE(SUM(estimated_cost), 0) AS est, COALESCE(SUM(actual_cost), 0) AS act FROM travel_requests WHERE status != 9').get();
-
-  res.json({
-    total,
-    pending: counts[0] || 0,
-    approved: (counts[1] || 0) + (counts[2] || 0),
-    completed: counts[6] || 0,
-    rejected: counts[9] || 0,
-    budgetEstimated: budgetRow.est,
-    budgetActual: budgetRow.act,
-    eco: {
-      paper: total,
-      baht: Number((total * 0.45).toFixed(2)),
-      ghg: Number(((total * 0.8049) / 180).toFixed(3)),
-    },
-  });
+// ==================== MASTER FROM db_hrd ====================
+app.get('/api/master', async (req, res) => {
+  try {
+    const [[departments], [persons], [travelRates]] = await Promise.all([
+      hrdPool.query('SELECT department_id AS row_id, department_id, department_name AS unit_name, department_name FROM hrd_department WHERE department_status = "Y" ORDER BY department_id'),
+      hrdPool.query(
+        `SELECT p.person_id,
+                CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
+                p.department_id, p.position_id,
+                COALESCE(pos.position_name, '') AS position_name,
+                COALESCE(d.department_name, '') AS department_name
+         FROM hrd_person p
+         LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+         LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
+         LEFT JOIN hrd_department d ON d.department_id = p.department_id
+         WHERE p.fname IS NOT NULL AND TRIM(p.fname) != ''
+         ORDER BY p.fname, p.lname`
+      ),
+      hrdPool.query('SELECT id, province_id, province_name_th, distance_roundtrip_km, private_car_rate, bus_fare, flight_fare, train_fare FROM hrd_travel_rates ORDER BY province_name_th').catch(() => [[]]),
+    ]);
+    res.json({ departments, persons, travelRates });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ==================== TRAVEL REQUESTS ====================
+app.get('/api/units', async (req, res) => {
+  try {
+    const [rows] = await hrdPool.query('SELECT department_id AS row_id, department_name AS unit_name FROM hrd_department WHERE department_status = "Y" ORDER BY department_id');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== STATS ====================
+app.get('/api/stats', async (req, res) => {
+  try {
+    const uid = req.session.user ? Number(req.session.user.person_id) : 0;
+    const [[agg]] = await travelPool.query(`
+      SELECT COUNT(*) AS total,
+             SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS pending,
+             SUM(CASE WHEN status IN (1, 2) THEN 1 ELSE 0 END) AS approved,
+             SUM(CASE WHEN status = 6 THEN 1 ELSE 0 END) AS completed,
+             SUM(CASE WHEN status = 9 THEN 1 ELSE 0 END) AS rejected,
+             COALESCE(SUM(CASE WHEN status != 9 THEN estimated_cost ELSE 0 END), 0) AS est,
+             COALESCE(SUM(CASE WHEN status != 9 THEN actual_cost ELSE 0 END), 0) AS act
+      FROM travel_requests
+    `);
+    let myCount = 0;
+    if (uid > 0) {
+      const [[mine]] = await travelPool.query(
+        `SELECT COUNT(DISTINCT t.row_id) AS cnt
+         FROM travel_requests t
+         LEFT JOIN travel_companions tc ON tc.travel_id = t.row_id
+         WHERE t.requester_person_id = ? OR tc.person_id = ?`,
+        [uid, uid]
+      );
+      myCount = Number(mine?.cnt || 0);
+    }
+    const total = Number(agg?.total || 0);
+    res.json({
+      total,
+      myCount,
+      pending: Number(agg?.pending || 0),
+      approved: Number(agg?.approved || 0),
+      completed: Number(agg?.completed || 0),
+      rejected: Number(agg?.rejected || 0),
+      budgetEstimated: Number(agg?.est || 0),
+      budgetActual: Number(agg?.act || 0),
+      eco: {
+        paper: total * 4,
+        baht: Number((total * 1.8).toFixed(2)),
+        ghg: Number(((total * 0.8049) / 180).toFixed(3)),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== LIST & DETAIL ====================
 function buildWhere(query, user) {
   const { month, year, status, travel_type, unit_id, date, q, mine } = query;
   const where = [];
@@ -152,12 +222,12 @@ function buildWhere(query, user) {
     params.push(date, date);
   } else {
     if (year) {
-      where.push("strftime('%Y', t.start_date) = ?");
-      params.push(String(year));
+      where.push('YEAR(t.start_date) = ?');
+      params.push(Number(year));
     }
     if (month && Number(month) > 0) {
-      where.push("strftime('%m', t.start_date) = ?");
-      params.push(String(month).padStart(2, '0'));
+      where.push('MONTH(t.start_date) = ?');
+      params.push(Number(month));
     }
   }
   if (status !== undefined && status !== '') {
@@ -173,432 +243,528 @@ function buildWhere(query, user) {
     params.push(Number(unit_id));
   }
   if (mine === '1' && user) {
-    where.push('(t.user_id = ? OR t.requester_name = ?)');
-    params.push(user.row_id, user.fullName);
+    where.push('(t.requester_person_id = ? OR EXISTS (SELECT 1 FROM travel_companions tc WHERE tc.travel_id = t.row_id AND tc.person_id = ?))');
+    params.push(user.person_id, user.person_id);
   }
-  if (q && q.trim()) {
-    const like = `%${q.trim()}%`;
-    where.push('(t.subject LIKE ? OR t.destination LIKE ? OR t.province LIKE ? OR t.requester_name LIKE ? OR t.doc_no LIKE ? OR t.travelers LIKE ?)');
-    params.push(like, like, like, like, like, like);
+  if (q && String(q).trim()) {
+    const like = `%${String(q).trim()}%`;
+    where.push(`(t.subject LIKE ? OR t.destination LIKE ? OR t.province LIKE ? OR t.requester_name LIKE ? OR t.doc_no LIKE ? OR t.organizer LIKE ?
+      OR EXISTS (SELECT 1 FROM travel_companions tc WHERE tc.travel_id = t.row_id AND tc.full_name LIKE ?))`);
+    params.push(like, like, like, like, like, like, like);
   }
-
   return {
     whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '',
     params,
   };
 }
 
-app.get('/api/travels', (req, res) => {
-  const { whereSql, params } = buildWhere(req.query, req.session.user);
-  const totalRow = db.prepare(`SELECT COUNT(*) AS cnt FROM travel_requests t ${whereSql}`).get(...params);
+app.get('/api/travels', async (req, res) => {
+  try {
+    const { whereSql, params } = buildWhere(req.query, req.session.user);
+    const [[cntRow]] = await travelPool.query(`SELECT COUNT(*) AS cnt FROM travel_requests t ${whereSql}`, params);
+    const total = Number(cntRow?.cnt || 0);
+    const pageNum = Math.max(1, Number(req.query.page) || 1);
+    const pageSize = Math.min(500, Math.max(1, Number(req.query.limit) || 25));
+    const offset = (pageNum - 1) * pageSize;
+    const uid = req.session.user ? Number(req.session.user.person_id) : 0;
 
-  const pageNum = Math.max(1, Number(req.query.page) || 1);
-  const pageSize = Math.min(500, Math.max(1, Number(req.query.limit) || 50));
-  const offset = (pageNum - 1) * pageSize;
-
-  const items = db
-    .prepare(
-      `SELECT t.*, u.unit_name
+    const [items] = await travelPool.query(
+      `SELECT t.*,
+              COALESCE(NULLIF(t.request_dept, ''), '-') AS unit_name,
+              (SELECT COUNT(*) FROM travel_companions tc WHERE tc.travel_id = t.row_id) AS traveler_count,
+              (SELECT GROUP_CONCAT(tc.full_name ORDER BY tc.seq_no SEPARATOR ', ') FROM travel_companions tc WHERE tc.travel_id = t.row_id) AS travelers,
+              CASE WHEN ? > 0 AND EXISTS (SELECT 1 FROM travel_companions tc2 WHERE tc2.travel_id = t.row_id AND tc2.person_id = ?) THEN 1 ELSE 0 END AS is_companion,
+              CASE WHEN ti.id IS NOT NULL THEN 1 ELSE 0 END AS has_image
        FROM travel_requests t
-       LEFT JOIN units u ON u.row_id = t.unit_id
+       LEFT JOIN travel_images ti ON ti.travel_id = t.row_id
        ${whereSql}
        ORDER BY t.start_date DESC, t.row_id DESC
-       LIMIT ? OFFSET ?`
-    )
-    .all(...params, pageSize, offset);
-
-  res.json({
-    items,
-    total: totalRow.cnt,
-    page: pageNum,
-    limit: pageSize,
-    totalPages: Math.ceil(totalRow.cnt / pageSize) || 1,
-  });
-});
-
-app.get('/api/travels/board/pdf', requireAdmin, (req, res) => {
-  const { whereSql, params } = buildWhere(req.query, req.session.user);
-  const items = db
-    .prepare(
-      `SELECT t.*, u.unit_name
-       FROM travel_requests t
-       LEFT JOIN units u ON u.row_id = t.unit_id
-       ${whereSql}
-       ORDER BY t.start_date DESC, t.row_id DESC
-       LIMIT 200`
-    )
-    .all(...params);
-
-  const parts = [];
-  if (req.query.year) parts.push(`ปี พ.ศ. ${Number(req.query.year) + 543}`);
-  if (req.query.month && Number(req.query.month) > 0) parts.push(`เดือน ${req.query.month}`);
-  parts.push(`จำนวน ${items.length} รายการ`);
-  generateTravelBoardPdf(items, parts.join(' | '), res, req.query.download === '1');
-});
-
-app.get('/api/travels/:id/pdf', requireAdmin, (req, res) => {
-  const item = db
-    .prepare(
-      `SELECT t.*, u.unit_name
-       FROM travel_requests t
-       LEFT JOIN units u ON u.row_id = t.unit_id
-       WHERE t.row_id = ?`
-    )
-    .get(Number(req.params.id));
-  if (!item) return res.status(404).json({ error: 'ไม่พบคำขอไปราชการ' });
-  generateTravelRequestPdf(item, res, req.query.download === '1');
-});
-
-app.get('/api/travels/:id', (req, res) => {
-  const item = db
-    .prepare(
-      `SELECT t.*, u.unit_name
-       FROM travel_requests t
-       LEFT JOIN units u ON u.row_id = t.unit_id
-       WHERE t.row_id = ?`
-    )
-    .get(Number(req.params.id));
-  if (!item) return res.status(404).json({ error: 'ไม่พบคำขอไปราชการ' });
-  res.json(item);
-});
-
-app.post('/api/travels', requireAuth, (req, res) => {
-  const b = req.body;
-  if (!b.subject || !b.destination || !b.start_date) {
-    return res.status(400).json({ error: 'กรุณากรอกเรื่อง สถานที่ และวันที่ไปราชการ' });
-  }
-  const now = nowSql();
-  const unitId = b.unit_custom ? 0 : Number(b.unit_id || 0);
-
-  const info = db
-    .prepare(
-      `INSERT INTO travel_requests (
-        subject, travel_type, destination, province, start_date, end_date,
-        start_time, end_time, travelers, traveler_count, transport_type,
-        budget_source, estimated_cost, unit_id, unit_custom,
-        requester_name, requester_position, requester_tel, user_id,
-        status, memo, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      b.subject.trim(),
-      b.travel_type || 'ประชุม/สัมมนา',
-      b.destination.trim(),
-      (b.province || 'สกลนคร').trim(),
-      b.start_date,
-      b.end_date || b.start_date,
-      b.start_time || '08:30',
-      b.end_time || '16:30',
-      (b.travelers || '').trim(),
-      Number(b.traveler_count || 1),
-      b.transport_type || 'รถโรงพยาบาล',
-      b.budget_source || 'งบโรงพยาบาล',
-      Number(b.estimated_cost || 0),
-      unitId,
-      (b.unit_custom || '').trim(),
-      (b.requester_name || req.session.user.fullName).trim(),
-      (b.requester_position || req.session.user.position || '').trim(),
-      (b.requester_tel || req.session.user.telephone || '').trim(),
-      req.session.user.row_id,
-      req.session.user.isAdmin && b.status !== undefined ? Number(b.status) : 0,
-      (b.memo || '').trim(),
-      now,
-      now
+       LIMIT ? OFFSET ?`,
+      [uid, uid, ...params, pageSize, offset]
     );
 
-  const docNo = generateDocNo(info.lastInsertRowid);
-  db.prepare('UPDATE travel_requests SET doc_no = ? WHERE row_id = ?').run(docNo, info.lastInsertRowid);
-  res.status(201).json({ row_id: info.lastInsertRowid, doc_no: docNo });
+    res.json({
+      items,
+      total,
+      page: pageNum,
+      limit: pageSize,
+      totalPages: Math.ceil(total / pageSize) || 1,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.put('/api/travels/:id', requireAuth, (req, res) => {
-  const id = Number(req.params.id);
-  const existing = db.prepare('SELECT * FROM travel_requests WHERE row_id = ?').get(id);
-  if (!existing) return res.status(404).json({ error: 'ไม่พบคำขอไปราชการ' });
+async function getFullTravel(id) {
+  const [rows] = await travelPool.query('SELECT * FROM travel_requests WHERE row_id = ? LIMIT 1', [Number(id)]);
+  if (!rows.length) return null;
+  const item = rows[0];
+  const [companions] = await travelPool.query('SELECT * FROM travel_companions WHERE travel_id = ? ORDER BY seq_no ASC', [item.row_id]);
+  const [atts] = await travelPool.query('SELECT * FROM travel_attachments WHERE travel_id = ? LIMIT 1', [item.row_id]);
+  const [imgs] = await travelPool.query('SELECT mime_type, file_name, image_data FROM travel_images WHERE travel_id = ? LIMIT 1', [item.row_id]);
+  item.companions = companions;
+  item.attachment = atts[0] || {};
+  item.image_data = imgs[0]?.image_data || '';
+  item.image_name = imgs[0]?.file_name || '';
+  return item;
+}
 
-  const isOwner = existing.user_id === req.session.user.row_id || existing.requester_name === req.session.user.fullName;
-  if (!req.session.user.isAdmin && !isOwner) {
-    return res.status(403).json({ error: 'ไม่มีสิทธิ์แก้ไขคำขอนี้' });
+app.get('/api/travels/board/pdf', requireAdmin, async (req, res) => {
+  try {
+    const { whereSql, params } = buildWhere(req.query, req.session.user);
+    const [items] = await travelPool.query(
+      `SELECT t.* FROM travel_requests t ${whereSql} ORDER BY t.start_date DESC, t.row_id DESC LIMIT 200`,
+      params
+    );
+    const parts = [];
+    if (req.query.year) parts.push(`ปี พ.ศ. ${Number(req.query.year) + 543}`);
+    if (req.query.month && Number(req.query.month) > 0) parts.push(`เดือน ${req.query.month}`);
+    parts.push(`จำนวน ${items.length} รายการ`);
+    generateTravelBoardPdf(items, parts.join(' | '), res, req.query.download === '1');
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/travels/:id/pdf', requireAuth, async (req, res) => {
+  try {
+    const item = await getFullTravel(req.params.id);
+    if (!item) return res.status(404).json({ error: 'ไม่พบคำขอไปราชการ' });
+    const form = String(req.query.form || 'memo_in');
+    generateTravelRequestPdf(item, res, req.query.download === '1', form);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/travels/:id', async (req, res) => {
+  try {
+    const item = await getFullTravel(req.params.id);
+    if (!item) return res.status(404).json({ error: 'ไม่พบคำขอไปราชการ' });
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== SYNC TO db_hrd ====================
+async function syncTravelToHrd(travelId, b, user) {
+  try {
+    const item = await getFullTravel(travelId);
+    if (!item) return;
+    const allowId = item.status === 1 || item.status === 2 || item.status === 6 ? 2 : (item.status === 9 ? 3 : 1);
+    const comps = (item.companions || []).map((c) => ({
+      person_id: c.person_id || null,
+      name: c.full_name,
+      position: c.position || '',
+    }));
+
+    let hrdId = item.hrd_train_data_id;
+    if (hrdId) {
+      await hrdPool.query(
+        `UPDATE hrd_train_data SET
+          train_topic = ?, train_org = ?, train_place = ?, province_id = ?,
+          train_startdate = ?, train_enddate = ?, train_sum_day = ?,
+          train_order = ?, train_travel = ?, train_distance_km = ?,
+          train_pay_register = ?, train_pay_apartment = ?, train_pay_allowance = ?,
+          train_pay_travel = ?, train_pay_other = ?, allow_id = ?
+         WHERE train_data_id = ?`,
+        [
+          item.subject, item.organizer || '', item.destination || '', item.province_id || null,
+          item.start_date, item.end_date, item.total_days || 1,
+          item.doc_no || '', item.transport_type || '', Number(item.distance_km || 0),
+          Number(item.reg_cost || 0), Number(item.hotel_cost || 0), Number(item.allowance_cost || 0),
+          Number(item.travel_cost || 0), Number(item.other_cost || 0), allowId,
+          hrdId,
+        ]
+      );
+    } else {
+      const [ins] = await hrdPool.query(
+        `INSERT INTO hrd_train_data (
+          train_topic, train_org, train_place, province_id, train_startdate, train_enddate, train_sum_day,
+          train_order, train_travel, train_distance_km,
+          train_pay_register, train_pay_apartment, train_pay_allowance, train_pay_travel, train_pay_other,
+          allow_id, person_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          item.subject, item.organizer || '', item.destination || '', item.province_id || null,
+          item.start_date, item.end_date, item.total_days || 1,
+          item.doc_no || '', item.transport_type || '', Number(item.distance_km || 0),
+          Number(item.reg_cost || 0), Number(item.hotel_cost || 0), Number(item.allowance_cost || 0),
+          Number(item.travel_cost || 0), Number(item.other_cost || 0), allowId,
+          Number(item.requester_person_id || user?.person_id || 0),
+        ]
+      );
+      hrdId = ins.insertId;
+      await travelPool.query('UPDATE travel_requests SET hrd_train_data_id = ? WHERE row_id = ?', [hrdId, travelId]);
+    }
+
+    await hrdPool.query(
+      `INSERT INTO hrd_train_memo (
+        train_data_id, memo_date, request_dept, companions_json, org_budget_text, hospital_budget,
+        director_name, director_pos1, director_pos2
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        memo_date = VALUES(memo_date), request_dept = VALUES(request_dept),
+        companions_json = VALUES(companions_json), org_budget_text = VALUES(org_budget_text),
+        hospital_budget = VALUES(hospital_budget), director_name = VALUES(director_name),
+        director_pos1 = VALUES(director_pos1), director_pos2 = VALUES(director_pos2)`,
+      [
+        hrdId, item.memo_date || item.start_date, item.request_dept || '',
+        JSON.stringify(comps), item.org_budget_text || '', Number(item.estimated_cost || 0),
+        item.director_name || '', item.director_pos1 || '', item.director_pos2 || '',
+      ]
+    );
+
+    await hrdPool.query('DELETE FROM hrd_train_companions WHERE train_data_id = ?', [hrdId]);
+    for (let i = 0; i < comps.length; i++) {
+      if (comps[i].person_id) {
+        await hrdPool.query(
+          `INSERT IGNORE INTO hrd_train_companions (train_data_id, person_id, seq_no, companion_name, companion_position)
+           VALUES (?, ?, ?, ?, ?)`,
+          [hrdId, Number(comps[i].person_id), i + 1, comps[i].name, comps[i].position]
+        );
+      }
+    }
+  } catch (err) {
+    console.warn('syncTravelToHrd skipped:', err.message);
+  }
+}
+
+async function saveTravelDetails(travelId, b) {
+  const comps = Array.isArray(b.companions) ? b.companions : [];
+  await travelPool.query('DELETE FROM travel_companions WHERE travel_id = ?', [travelId]);
+  for (let i = 0; i < comps.length; i++) {
+    const c = comps[i] || {};
+    const name = String(c.full_name || c.name || '').trim();
+    if (!name) continue;
+    const allow = Number(c.allowance_fee || 0);
+    const hotel = Number(c.hotel_fee || 0);
+    const trv = Number(c.travel_fee || 0);
+    const reg = Number(c.register_fee || 0);
+    const oth = Number(c.other_fee || 0);
+    const tot = allow + hotel + trv + reg + oth;
+    await travelPool.query(
+      `INSERT INTO travel_companions (
+        travel_id, seq_no, person_id, full_name, position, level_name,
+        allowance_fee, hotel_fee, travel_fee, register_fee, other_fee, total_fee, remark
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        travelId, i + 1, c.person_id ? Number(c.person_id) : null, name,
+        String(c.position || '').trim(), String(c.level_name || '').trim(),
+        allow, hotel, trv, reg, oth, tot, String(c.remark || '').trim(),
+      ]
+    );
   }
 
-  const b = req.body;
-  const now = nowSql();
-  const unitId = b.unit_custom ? 0 : Number(b.unit_id ?? existing.unit_id);
-
-  db.prepare(
-    `UPDATE travel_requests SET
-      subject = ?, travel_type = ?, destination = ?, province = ?,
-      start_date = ?, end_date = ?, start_time = ?, end_time = ?,
-      travelers = ?, traveler_count = ?, transport_type = ?,
-      budget_source = ?, estimated_cost = ?, actual_cost = ?,
-      unit_id = ?, unit_custom = ?, requester_name = ?, requester_position = ?, requester_tel = ?,
-      memo = ?, status = ?, updated_at = ?
-    WHERE row_id = ?`
-  ).run(
-    b.subject ?? existing.subject,
-    b.travel_type ?? existing.travel_type,
-    b.destination ?? existing.destination,
-    b.province ?? existing.province,
-    b.start_date ?? existing.start_date,
-    b.end_date ?? existing.end_date,
-    b.start_time ?? existing.start_time,
-    b.end_time ?? existing.end_time,
-    b.travelers ?? existing.travelers,
-    Number(b.traveler_count ?? existing.traveler_count),
-    b.transport_type ?? existing.transport_type,
-    b.budget_source ?? existing.budget_source,
-    Number(b.estimated_cost ?? existing.estimated_cost),
-    req.session.user.isAdmin ? Number(b.actual_cost ?? existing.actual_cost) : existing.actual_cost,
-    unitId,
-    b.unit_custom !== undefined ? b.unit_custom : existing.unit_custom,
-    b.requester_name ?? existing.requester_name,
-    b.requester_position ?? existing.requester_position,
-    b.requester_tel ?? existing.requester_tel,
-    b.memo ?? existing.memo,
-    req.session.user.isAdmin ? Number(b.status ?? existing.status) : existing.status,
-    now,
-    id
+  const att = b.attachment || {};
+  await travelPool.query(
+    `INSERT INTO travel_attachments (
+      travel_id, history_status, necessity_reason, delegate_person_id, delegate_name,
+      expected_benefit, knowledge_sharer, post_action_1, post_action_2, post_action_3
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      history_status = VALUES(history_status),
+      necessity_reason = VALUES(necessity_reason),
+      delegate_person_id = VALUES(delegate_person_id),
+      delegate_name = VALUES(delegate_name),
+      expected_benefit = VALUES(expected_benefit),
+      knowledge_sharer = VALUES(knowledge_sharer),
+      post_action_1 = VALUES(post_action_1),
+      post_action_2 = VALUES(post_action_2),
+      post_action_3 = VALUES(post_action_3)`,
+    [
+      travelId,
+      ['ever', 'never', 'others_ever'].includes(att.history_status) ? att.history_status : 'never',
+      String(att.necessity_reason || '').trim(),
+      att.delegate_person_id ? Number(att.delegate_person_id) : null,
+      String(att.delegate_name || '').trim(),
+      String(att.expected_benefit || '').trim(),
+      String(att.knowledge_sharer || '').trim(),
+      String(att.post_action_1 || '').trim(),
+      String(att.post_action_2 || '').trim(),
+      String(att.post_action_3 || '').trim(),
+    ]
   );
-  res.json({ ok: true });
+
+  if (b.image_data === '__REMOVE__') {
+    await travelPool.query('DELETE FROM travel_images WHERE travel_id = ?', [travelId]);
+  } else if (typeof b.image_data === 'string' && b.image_data.startsWith('data:image/')) {
+    const m = b.image_data.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+    if (m) {
+      await travelPool.query(
+        `INSERT INTO travel_images (travel_id, mime_type, file_name, image_data)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE mime_type = VALUES(mime_type), file_name = VALUES(file_name), image_data = VALUES(image_data)`,
+        [travelId, m[1], String(b.image_name || ''), b.image_data]
+      );
+    }
+  }
+}
+
+app.post('/api/travels', requireAuth, async (req, res) => {
+  try {
+    const b = req.body;
+    if (!b.subject || !b.destination || !b.start_date) {
+      return res.status(400).json({ error: 'กรุณากรอกเรื่อง สถานที่ และวันที่ไปราชการ' });
+    }
+    const startDate = String(b.start_date).slice(0, 10);
+    const endDate = String(b.end_date || startDate).slice(0, 10);
+    const totalDays = Number(b.total_days || calcDays(startDate, endDate));
+    const reg = Number(b.reg_cost || 0);
+    const hotel = Number(b.hotel_cost || 0);
+    const allow = Number(b.allowance_cost || 0);
+    const trv = Number(b.travel_cost || 0);
+    const oth = Number(b.other_cost || 0);
+    const est = Number(b.estimated_cost || (reg + hotel + allow + trv + oth));
+
+    const [ins] = await travelPool.query(
+      `INSERT INTO travel_requests (
+        doc_no, memo_scope, memo_date, subject, travel_type, organizer,
+        destination, province_id, province, distance_km, start_date, end_date, total_days,
+        transport_type, budget_source, org_budget_text,
+        reg_cost, hotel_cost, allowance_cost, travel_cost, other_cost, estimated_cost,
+        unit_id, request_dept, requester_person_id, requester_name, requester_position, requester_tel,
+        head_name, head_position, director_name, director_pos1, director_pos2, status, memo
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        String(b.doc_no || '').trim(),
+        b.memo_scope === 'out_province' ? 'out_province' : 'in_province',
+        b.memo_date ? String(b.memo_date).slice(0, 10) : startDate,
+        b.subject.trim(),
+        b.travel_type || 'อบรม/ประชุมวิชาการ',
+        String(b.organizer || '').trim(),
+        b.destination.trim(),
+        b.province_id ? Number(b.province_id) : null,
+        String(b.province || 'สกลนคร').trim(),
+        Number(b.distance_km || 0),
+        startDate,
+        endDate,
+        totalDays,
+        b.transport_type || 'รถโรงพยาบาล',
+        b.budget_source || 'เงินบำรุงโรงพยาบาลโคกศรีสุพรรณ',
+        String(b.org_budget_text || '').trim(),
+        reg, hotel, allow, trv, oth, est,
+        Number(b.unit_id || req.session.user.department_id || 0),
+        String(b.request_dept || req.session.user.department_name || '').trim(),
+        req.session.user.person_id,
+        String(b.requester_name || req.session.user.fullName).trim(),
+        String(b.requester_position || req.session.user.position || '').trim(),
+        String(b.requester_tel || req.session.user.telephone || '').trim(),
+        String(b.head_name || '').trim(),
+        String(b.head_position || '').trim(),
+        String(b.director_name || 'นางณัฐปภัสร์ นวัตชัยศิริกุล').trim(),
+        String(b.director_pos1 || 'นายแพทย์ชำนาญการพิเศษ รักษาการในตำแหน่ง').trim(),
+        String(b.director_pos2 || 'ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ').trim(),
+        req.session.user.isAdmin && b.status !== undefined ? Number(b.status) : 0,
+        String(b.memo || '').trim(),
+      ]
+    );
+
+    const travelId = ins.insertId;
+    await saveTravelDetails(travelId, b);
+    await syncTravelToHrd(travelId, b, req.session.user);
+    res.status(201).json({ row_id: travelId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.patch('/api/travels/:id/approve', requireAdmin, (req, res) => {
-  const id = Number(req.params.id);
-  const existing = db.prepare('SELECT * FROM travel_requests WHERE row_id = ?').get(id);
-  if (!existing) return res.status(404).json({ error: 'ไม่พบคำขอไปราชการ' });
+app.put('/api/travels/:id', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const existing = await getFullTravel(id);
+    if (!existing) return res.status(404).json({ error: 'ไม่พบคำขอไปราชการ' });
 
-  const now = nowSql();
-  const { status, assigned_to, approval_note, actual_cost } = req.body;
+    const uid = Number(req.session.user.person_id);
+    const isOwner = Number(existing.requester_person_id) === uid;
+    const isComp = (existing.companions || []).some((c) => Number(c.person_id) === uid);
+    if (!req.session.user.isAdmin && !isOwner && !isComp) {
+      return res.status(403).json({ error: 'ไม่มีสิทธิ์แก้ไขคำขอนี้' });
+    }
 
-  db.prepare(
-    `UPDATE travel_requests SET
-      status = ?, assigned_to = ?, approval_note = ?, actual_cost = ?,
-      approver_name = ?, approved_at = ?, updated_at = ?
-    WHERE row_id = ?`
-  ).run(
-    Number(status ?? existing.status),
-    (assigned_to ?? existing.assigned_to ?? '').trim(),
-    approval_note !== undefined ? approval_note : existing.approval_note,
-    actual_cost !== undefined ? Number(actual_cost) : existing.actual_cost,
-    req.session.user.fullName,
-    now,
-    now,
-    id
-  );
-  res.json({ ok: true });
+    const b = req.body;
+    const startDate = String(b.start_date || existing.start_date).slice(0, 10);
+    const endDate = String(b.end_date || existing.end_date).slice(0, 10);
+    const totalDays = Number(b.total_days || calcDays(startDate, endDate));
+    const reg = Number(b.reg_cost ?? existing.reg_cost);
+    const hotel = Number(b.hotel_cost ?? existing.hotel_cost);
+    const allow = Number(b.allowance_cost ?? existing.allowance_cost);
+    const trv = Number(b.travel_cost ?? existing.travel_cost);
+    const oth = Number(b.other_cost ?? existing.other_cost);
+    const est = Number(b.estimated_cost ?? (reg + hotel + allow + trv + oth));
+
+    await travelPool.query(
+      `UPDATE travel_requests SET
+        doc_no = ?, memo_scope = ?, memo_date = ?, subject = ?, travel_type = ?, organizer = ?,
+        destination = ?, province_id = ?, province = ?, distance_km = ?, start_date = ?, end_date = ?, total_days = ?,
+        transport_type = ?, budget_source = ?, org_budget_text = ?,
+        reg_cost = ?, hotel_cost = ?, allowance_cost = ?, travel_cost = ?, other_cost = ?, estimated_cost = ?,
+        request_dept = ?, requester_name = ?, requester_position = ?, requester_tel = ?,
+        head_name = ?, head_position = ?, director_name = ?, director_pos1 = ?, director_pos2 = ?, memo = ?
+       WHERE row_id = ?`,
+      [
+        b.doc_no ?? existing.doc_no,
+        b.memo_scope === 'out_province' ? 'out_province' : (b.memo_scope === 'in_province' ? 'in_province' : existing.memo_scope),
+        b.memo_date ? String(b.memo_date).slice(0, 10) : existing.memo_date,
+        b.subject ?? existing.subject,
+        b.travel_type ?? existing.travel_type,
+        b.organizer ?? existing.organizer,
+        b.destination ?? existing.destination,
+        b.province_id ? Number(b.province_id) : existing.province_id,
+        b.province ?? existing.province,
+        Number(b.distance_km ?? existing.distance_km),
+        startDate,
+        endDate,
+        totalDays,
+        b.transport_type ?? existing.transport_type,
+        b.budget_source ?? existing.budget_source,
+        b.org_budget_text ?? existing.org_budget_text,
+        reg, hotel, allow, trv, oth, est,
+        b.request_dept ?? existing.request_dept,
+        b.requester_name ?? existing.requester_name,
+        b.requester_position ?? existing.requester_position,
+        b.requester_tel ?? existing.requester_tel,
+        b.head_name ?? existing.head_name,
+        b.head_position ?? existing.head_position,
+        b.director_name ?? existing.director_name,
+        b.director_pos1 ?? existing.director_pos1,
+        b.director_pos2 ?? existing.director_pos2,
+        b.memo ?? existing.memo,
+        id,
+      ]
+    );
+
+    await saveTravelDetails(id, b);
+    await syncTravelToHrd(id, b, req.session.user);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.delete('/api/travels/:id', requireAdmin, (req, res) => {
-  db.prepare('DELETE FROM travel_requests WHERE row_id = ?').run(Number(req.params.id));
-  res.json({ ok: true });
+app.patch('/api/travels/:id/approve', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { status, assigned_to, approval_note, actual_cost } = req.body;
+    await travelPool.query(
+      `UPDATE travel_requests SET
+        status = ?, assigned_to = ?, approval_note = ?, actual_cost = ?,
+        approver_name = ?, approved_at = NOW()
+       WHERE row_id = ?`,
+      [
+        Number(status ?? 1),
+        String(assigned_to || '').trim(),
+        String(approval_note || '').trim(),
+        Number(actual_cost || 0),
+        req.session.user.fullName,
+        id,
+      ]
+    );
+    await syncTravelToHrd(id, {}, req.session.user);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/travels/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [rows] = await travelPool.query('SELECT hrd_train_data_id FROM travel_requests WHERE row_id = ? LIMIT 1', [id]);
+    const hrdId = rows[0]?.hrd_train_data_id;
+    await travelPool.query('DELETE FROM travel_requests WHERE row_id = ?', [id]);
+    if (hrdId) {
+      await hrdPool.query('DELETE FROM hrd_train_companions WHERE train_data_id = ?', [hrdId]).catch(() => {});
+      await hrdPool.query('DELETE FROM hrd_train_memo WHERE train_data_id = ?', [hrdId]).catch(() => {});
+      await hrdPool.query('DELETE FROM hrd_train_data WHERE train_data_id = ?', [hrdId]).catch(() => {});
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==================== REPORTS ====================
-function buildReportFilter(query, col = 't.start_date') {
-  const { date, year, month, fiscalYear } = query;
+async function getReportData(query) {
+  const { fiscalYear, month, year } = query;
   const where = [];
   const params = [];
-  const desc = [];
-
-  if (date) {
-    where.push(`(t.start_date <= ? AND t.end_date >= ?)`);
-    params.push(date, date);
-    desc.push(`วันที่ ${date}`);
-  } else if (fiscalYear) {
+  let desc = 'ข้อมูลทั้งหมด';
+  if (fiscalYear) {
     const fy = Number(fiscalYear);
     const ce = fy > 2400 ? fy - 543 : fy;
-    const start = `${ce - 1}-10-01`;
-    const end = `${ce}-09-30`;
-    where.push(`${col} >= ? AND ${col} <= ?`);
-    params.push(start, end);
-    desc.push(`ปีงบประมาณ ${ce + 543} (${start} ถึง ${end})`);
-  } else {
-    if (year) {
-      where.push(`strftime('%Y', ${col}) = ?`);
-      params.push(String(year));
-      desc.push(`ปี พ.ศ. ${Number(year) + 543}`);
-    }
+    where.push('t.start_date BETWEEN ? AND ?');
+    params.push(`${ce - 1}-10-01`, `${ce}-09-30`);
+    desc = `ปีงบประมาณ พ.ศ. ${ce + 543}`;
+  } else if (year) {
+    where.push('YEAR(t.start_date) = ?');
+    params.push(Number(year));
     if (month && Number(month) > 0) {
-      where.push(`strftime('%m', ${col}) = ?`);
-      params.push(String(month).padStart(2, '0'));
-      desc.push(`เดือน ${month}`);
+      where.push('MONTH(t.start_date) = ?');
+      params.push(Number(month));
     }
   }
-  return {
-    whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '',
-    params,
-    filterDesc: desc.join(' | ') || 'ข้อมูลทั้งหมด',
-  };
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const [byDepartment] = await travelPool.query(
+    `SELECT COALESCE(NULLIF(t.request_dept, ''), 'ไม่ระบุหน่วยงาน') AS name,
+            COUNT(*) AS total, COALESCE(SUM(t.estimated_cost), 0) AS est_cost, COALESCE(SUM(t.actual_cost), 0) AS act_cost
+     FROM travel_requests t ${whereSql} GROUP BY name ORDER BY total DESC`,
+    params
+  );
+  const [byType] = await travelPool.query(
+    `SELECT COALESCE(NULLIF(t.travel_type, ''), 'ไม่ระบุ') AS name,
+            COUNT(*) AS total, COALESCE(SUM(t.estimated_cost), 0) AS est_cost
+     FROM travel_requests t ${whereSql} GROUP BY name ORDER BY total DESC`,
+    params
+  );
+  const [byTransport] = await travelPool.query(
+    `SELECT COALESCE(NULLIF(t.transport_type, ''), 'ไม่ระบุ') AS name, COUNT(*) AS total
+     FROM travel_requests t ${whereSql} GROUP BY name ORDER BY total DESC`,
+    params
+  );
+  const [byStatus] = await travelPool.query(
+    `SELECT t.status, COUNT(*) AS total FROM travel_requests t ${whereSql} GROUP BY t.status`,
+    params
+  );
+  return { filterDesc: desc, byDepartment, byType, byTransport, byStatus };
 }
 
-function getTravelReportData(query) {
-  const { whereSql, params, filterDesc } = buildReportFilter(query);
-
-  const byDepartment = db
-    .prepare(
-      `SELECT COALESCE(NULLIF(u.unit_name, ''), NULLIF(t.unit_custom, ''), 'ไม่ระบุหน่วยงาน') AS name,
-              COUNT(*) AS total,
-              COALESCE(SUM(t.estimated_cost), 0) AS est_cost,
-              COALESCE(SUM(t.actual_cost), 0) AS act_cost
-       FROM travel_requests t
-       LEFT JOIN units u ON u.row_id = t.unit_id
-       ${whereSql}
-       GROUP BY name
-       ORDER BY total DESC`
-    )
-    .all(...params);
-
-  const byType = db
-    .prepare(
-      `SELECT travel_type AS name, COUNT(*) AS total, COALESCE(SUM(estimated_cost), 0) AS est_cost
-       FROM travel_requests t
-       ${whereSql}
-       GROUP BY travel_type
-       ORDER BY total DESC`
-    )
-    .all(...params);
-
-  const byTransport = db
-    .prepare(
-      `SELECT transport_type AS name, COUNT(*) AS total
-       FROM travel_requests t
-       ${whereSql}
-       GROUP BY transport_type
-       ORDER BY total DESC`
-    )
-    .all(...params);
-
-  const byStatus = db
-    .prepare(`SELECT status, COUNT(*) AS total FROM travel_requests t ${whereSql} GROUP BY status`)
-    .all(...params);
-
-  return { filterDesc, byDepartment, byType, byTransport, byStatus };
-}
-
-app.get('/api/reports/summary', (req, res) => {
-  res.json(getTravelReportData(req.query));
+app.get('/api/reports/summary', async (req, res) => {
+  try {
+    res.json(await getReportData(req.query));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/reports/pdf', requireAdmin, (req, res) => {
-  const { section = 'department', download } = req.query;
-  const data = getTravelReportData(req.query);
-  const isDl = download === '1';
-
-  if (section === 'department') {
-    const cols = [
-      { label: 'ลำดับ', w: 40, align: 'center' },
-      { label: 'หน่วยงาน', w: 220 },
-      { label: 'จำนวน (ครั้ง)', w: 75, align: 'center' },
-      { label: 'งบประมาณการ (บ.)', w: 94, align: 'right' },
-      { label: 'งบใช้จริง (บ.)', w: 94, align: 'right' },
-    ];
-    const rows = data.byDepartment.map((d, i) => [i + 1, d.name, d.total, Number(d.est_cost).toLocaleString(), Number(d.act_cost).toLocaleString()]);
-    return generateReportSectionPdf('รายงานสรุปการไปราชการตามหน่วยงาน', data.filterDesc, cols, rows, res, isDl);
-  }
-  if (section === 'type') {
-    const cols = [
-      { label: 'ลำดับ', w: 42, align: 'center' },
-      { label: 'ประเภทการไปราชการ', w: 270 },
-      { label: 'จำนวน (ครั้ง)', w: 95, align: 'center' },
-      { label: 'งบประมาณการ (บ.)', w: 116, align: 'right' },
-    ];
-    const rows = data.byType.map((t, i) => [i + 1, t.name, t.total, Number(t.est_cost).toLocaleString()]);
-    return generateReportSectionPdf('รายงานสรุปตามประเภทการไปราชการ', data.filterDesc, cols, rows, res, isDl);
-  }
-  if (section === 'transport') {
+app.get('/api/reports/pdf', requireAdmin, async (req, res) => {
+  try {
+    const data = await getReportData(req.query);
     const cols = [
       { label: 'ลำดับ', w: 45, align: 'center' },
-      { label: 'พาหนะเดินทาง', w: 350 },
-      { label: 'จำนวน (ครั้ง)', w: 128, align: 'center' },
+      { label: 'หน่วยงาน', w: 260 },
+      { label: 'จำนวน (ครั้ง)', w: 90, align: 'center' },
+      { label: 'งบประมาณการ (บ.)', w: 120, align: 'right' },
     ];
-    const rows = data.byTransport.map((t, i) => [i + 1, t.name, t.total]);
-    return generateReportSectionPdf('รายงานสรุปตามพาหนะเดินทาง', data.filterDesc, cols, rows, res, isDl);
+    const rows = data.byDepartment.map((d, i) => [i + 1, d.name, d.total, Number(d.est_cost).toLocaleString()]);
+    generateReportSectionPdf('รายงานสรุปการไปราชการตามหน่วยงาน', data.filterDesc, cols, rows, res, req.query.download === '1');
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  const STATUS_NAMES = { 0: 'รออนุมัติ', 1: 'อนุมัติแล้ว', 2: 'อยู่ระหว่างเดินทาง', 6: 'เสร็จสิ้นภารกิจ', 9: 'ไม่อนุมัติ / ยกเลิก' };
-  const cols = [
-    { label: 'สถานะ', w: 350 },
-    { label: 'จำนวน (ครั้ง)', w: 173, align: 'center' },
-  ];
-  const rows = data.byStatus.map((s) => [STATUS_NAMES[s.status] || s.status, s.total]);
-  return generateReportSectionPdf('รายงานสรุปตามสถานะการไปราชการ', data.filterDesc, cols, rows, res, isDl);
-});
-
-// ==================== UNITS & USERS ====================
-app.get('/api/units', (req, res) => {
-  res.json(db.prepare('SELECT * FROM units ORDER BY unit_name ASC').all());
-});
-
-app.post('/api/units', requireAdmin, (req, res) => {
-  const { unit_code, unit_name, unit_head, tel } = req.body;
-  if (!unit_name || !unit_name.trim()) return res.status(400).json({ error: 'กรุณาระบุชื่อหน่วยงาน' });
-  const info = db.prepare('INSERT INTO units (unit_code, unit_name, unit_head, tel) VALUES (?, ?, ?, ?)').run(unit_code || '', unit_name.trim(), unit_head || '', tel || '');
-  res.status(201).json({ row_id: info.lastInsertRowid });
-});
-
-app.put('/api/units/:id', requireAdmin, (req, res) => {
-  const { unit_code, unit_name, unit_head, tel } = req.body;
-  if (!unit_name || !unit_name.trim()) return res.status(400).json({ error: 'กรุณาระบุชื่อหน่วยงาน' });
-  db.prepare('UPDATE units SET unit_code = ?, unit_name = ?, unit_head = ?, tel = ? WHERE row_id = ?').run(unit_code || '', unit_name.trim(), unit_head || '', tel || '', Number(req.params.id));
-  res.json({ ok: true });
-});
-
-app.delete('/api/units/:id', requireAdmin, (req, res) => {
-  db.prepare('DELETE FROM units WHERE row_id = ?').run(Number(req.params.id));
-  res.json({ ok: true });
-});
-
-app.get('/api/users', requireAdmin, (req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT p.row_id, p.full_name, p.position, p.telephone, p.unit_id, p.role, p.username, u.unit_name
-       FROM users p
-       LEFT JOIN units u ON u.row_id = p.unit_id
-       ORDER BY p.row_id DESC`
-    )
-    .all();
-  res.json(rows);
-});
-
-app.post('/api/users', requireAdmin, (req, res) => {
-  const { full_name, position, telephone, unit_id, role, username, password } = req.body;
-  if (!full_name || !username || !password) return res.status(400).json({ error: 'กรุณากรอกชื่อ Username และ Password' });
-  try {
-    const info = db
-      .prepare('INSERT INTO users (full_name, position, telephone, unit_id, role, username, password, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(full_name.trim(), position || '', telephone || '', Number(unit_id || 0), role === 'admin' ? 'admin' : 'user', username.trim(), password.trim(), nowSql());
-    res.status(201).json({ row_id: info.lastInsertRowid });
-  } catch {
-    res.status(400).json({ error: 'Username นี้มีอยู่ในระบบแล้ว' });
-  }
-});
-
-app.put('/api/users/:id', requireAdmin, (req, res) => {
-  const id = Number(req.params.id);
-  const existing = db.prepare('SELECT * FROM users WHERE row_id = ?').get(id);
-  if (!existing) return res.status(404).json({ error: 'ไม่พบผู้ใช้งาน' });
-  const { full_name, position, telephone, unit_id, role, username, password } = req.body;
-  db.prepare('UPDATE users SET full_name = ?, position = ?, telephone = ?, unit_id = ?, role = ?, username = ?, password = ? WHERE row_id = ?').run(
-    full_name ?? existing.full_name,
-    position ?? existing.position,
-    telephone ?? existing.telephone,
-    Number(unit_id ?? existing.unit_id),
-    role === 'admin' ? 'admin' : 'user',
-    username ?? existing.username,
-    password ? password : existing.password,
-    id
-  );
-  res.json({ ok: true });
-});
-
-app.delete('/api/users/:id', requireAdmin, (req, res) => {
-  db.prepare('DELETE FROM users WHERE row_id = ?').run(Number(req.params.id));
-  res.json({ ok: true });
 });
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`KSP Travel System running at http://0.0.0.0:${PORT}`);
-});
+ensureDatabaseAndSchema()
+  .then(() => {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`KSP Travel System running at http://0.0.0.0:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Startup DB error:', err);
+    process.exit(1);
+  });

@@ -1,173 +1,148 @@
 const state = {
   user: null,
-  units: [],
+  master: null,
   currentTab: 'list',
-  mineOnly: false,
   viewMode: 'calendar',
+  mineOnly: false,
   calYear: new Date().getFullYear(),
   calMonth: new Date().getMonth() + 1,
   page: 1,
-  masterType: null,
-  masterEditId: null,
-};
-
-const STATUS_MAP = {
-  0: { label: 'รออนุมัติ', cls: 'badge-0', calCls: 'st-0' },
-  1: { label: 'อนุมัติแล้ว', cls: 'badge-1', calCls: 'st-1' },
-  2: { label: 'อยู่ระหว่างเดินทาง', cls: 'badge-2', calCls: 'st-2' },
-  6: { label: 'เสร็จสิ้นภารกิจ', cls: 'badge-6', calCls: 'st-6' },
-  9: { label: 'ไม่อนุมัติ / ยกเลิก', cls: 'badge-9', calCls: 'st-9' },
+  companions: [],
+  pdfTravelId: null,
+  pdfMode: 'single',
+  pdfForm: 'memo_in',
 };
 
 const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-const THAI_FULL_MONTHS = [
-  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
-];
-const THAI_DAYS = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+const THAI_FULL_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+const STATUS_LABELS = { 0: 'รออนุมัติ', 1: 'อนุมัติแล้ว', 2: 'กำลังเดินทาง', 6: 'เสร็จสิ้น', 9: 'ไม่อนุมัติ' };
 
 function esc(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function fmtThaiDate(iso) {
-  if (!iso || iso.startsWith('0000')) return '-';
-  const p = iso.slice(0, 10).split('-');
+  if (!iso || String(iso).startsWith('0000')) return '-';
+  const p = String(iso).slice(0, 10).split('-');
   if (p.length !== 3) return iso;
-  const y = Number(p[0]) + 543;
-  const m = THAI_MONTHS[Number(p[1]) - 1] || p[1];
-  return `${Number(p[2])} ${m} ${String(y).slice(-2)}`;
+  return `${Number(p[2])} ${THAI_MONTHS[Number(p[1]) - 1] || p[1]} ${String(Number(p[0]) + 543).slice(-2)}`;
 }
 
 async function api(url, opts = {}) {
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  });
+  const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
   return data;
 }
 
 async function init() {
-  await Promise.all([loadAuth(), loadStats(), loadUnits()]);
-  populateYearDropdowns();
-  setViewMode('calendar');
-  if (!state.user) openLoginModal();
+  populateYearFilter();
+  await Promise.all([loadAuth(), loadMaster()]);
+  await loadStats();
+  const urlParams = new URLSearchParams(window.location.search);
+  const initTab = urlParams.get('tab');
+  if (initTab === 'mine' && state.user) {
+    switchTab('mine');
+  } else if (initTab === 'create') {
+    openCreateTab();
+  } else {
+    setViewMode('calendar');
+  }
+}
+
+function populateYearFilter() {
+  const sel = document.getElementById('filterYear');
+  const cur = new Date().getFullYear();
+  let html = '<option value="">-- ทุกปี --</option>';
+  for (let y = cur + 1; y >= cur - 3; y--) {
+    html += `<option value="${y}" ${y === cur ? 'selected' : ''}>พ.ศ. ${y + 543}</option>`;
+  }
+  sel.innerHTML = html;
 }
 
 async function loadAuth() {
-  const { user } = await api('/api/auth/me');
-  state.user = user;
+  const data = await api('/api/auth/me');
+  state.user = data.user;
   renderAuth();
 }
 
 function renderAuth() {
-  const area = document.getElementById('authArea');
-  const adminBtns = document.querySelectorAll('.admin-only');
-  const tabMine = document.getElementById('tabMine');
-  const createNotice = document.getElementById('createAuthNotice');
-
+  const box = document.getElementById('authArea');
+  const adminEls = document.querySelectorAll('.admin-only');
   if (state.user) {
-    area.innerHTML = `
-      <div class="side-user-card">
-        <div><strong>👤 ${esc(state.user.fullName)}</strong></div>
-        <div style="font-size:11.5px;color:#94a3b8;">${state.user.isAdmin ? 'ผู้อนุมัติ / ผู้ดูแลระบบ' : 'ผู้ใช้งานทั่วไป'}</div>
-      </div>
-      <button class="btn btn-outline btn-sm full-btn" onclick="logout()" style="background:rgba(255,255,255,0.1);color:#fff;border-color:rgba(255,255,255,0.2);">ออกจากระบบ</button>
+    box.innerHTML = `
+      <div style="font-weight:600;color:#fff;margin-bottom:2px;">${esc(state.user.fullName)}</div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">${esc(state.user.position || state.user.department_name || '')}</div>
+      <button class="btn-soft btn-sm full-w" onclick="logout()">ออกจากระบบ</button>
     `;
-    tabMine.classList.remove('hidden');
-    createNotice.classList.add('hidden');
-    adminBtns.forEach((b) => b.classList.toggle('hidden', !state.user.isAdmin));
-    if (!document.getElementById('fRowId').value) {
-      document.getElementById('fRequesterName').value = state.user.fullName;
-      document.getElementById('fRequesterPos').value = state.user.position || '';
-      document.getElementById('fRequesterTel').value = state.user.telephone || '';
-      if (state.user.unit_id) document.getElementById('fUnitId').value = state.user.unit_id;
-    }
+    adminEls.forEach((el) => el.classList.toggle('hidden', !state.user.isAdmin));
   } else {
-    area.innerHTML = `<button class="btn btn-primary btn-sm full-btn" onclick="openLoginModal()">🔐 เข้าสู่ระบบ</button>`;
-    tabMine.classList.add('hidden');
-    adminBtns.forEach((b) => b.classList.add('hidden'));
-    createNotice.classList.remove('hidden');
+    box.innerHTML = `
+      <div style="color:#cbd5e1;margin-bottom:8px;">ยังไม่ได้เข้าสู่ระบบ</div>
+      <button class="btn-aurora btn-sm full-w" onclick="openLoginModal()">🔐 เข้าสู่ระบบ</button>
+    `;
+    adminEls.forEach((el) => el.classList.add('hidden'));
+  }
+}
+
+async function loadMaster() {
+  state.master = await api('/api/master');
+  const provSel = document.getElementById('fProvinceId');
+  if (provSel && state.master?.travelRates) {
+    provSel.innerHTML = '<option value="">-- เลือกจังหวัด --</option>' +
+      state.master.travelRates.map((r) => `<option value="${r.province_id}">${esc(r.province_name_th)}</option>`).join('');
+  }
+  const dl = document.getElementById('personsDatalist');
+  if (dl && state.master?.persons) {
+    dl.innerHTML = state.master.persons.map((p) => `<option value="${esc(p.full_name)}">`).join('');
   }
 }
 
 async function loadStats() {
   const s = await api('/api/stats');
-  document.getElementById('statTotal').textContent = s.total.toLocaleString();
-  document.getElementById('statPending').textContent = s.pending.toLocaleString();
-  document.getElementById('statApproved').textContent = s.approved.toLocaleString();
-  document.getElementById('statCompleted').textContent = s.completed.toLocaleString();
+  document.getElementById('statTotal').textContent = Number(s.total || 0).toLocaleString();
+  document.getElementById('statMine').textContent = state.user ? `${Number(s.myCount || 0).toLocaleString()} ครั้ง` : '-';
+  document.getElementById('statPending').textContent = Number(s.pending || 0).toLocaleString();
+  document.getElementById('statApproved').textContent = Number(s.approved || 0).toLocaleString();
   document.getElementById('statBudget').textContent = Number(s.budgetEstimated || 0).toLocaleString();
-  document.getElementById('ecoPaper').textContent = s.eco.paper.toLocaleString();
-  document.getElementById('ecoBaht').textContent = s.eco.baht.toLocaleString();
-  document.getElementById('ecoGhg').textContent = s.eco.ghg;
 }
-
-async function loadUnits() {
-  state.units = await api('/api/units');
-  const unitOptions = state.units.map((u) => `<option value="${u.row_id}">${esc(u.unit_name)}</option>`).join('');
-  document.getElementById('fUnitId').innerHTML = `<option value="0">-- เลือกหน่วยงาน --</option>${unitOptions}`;
-}
-
-function populateYearDropdowns() {
-  const curYear = new Date().getFullYear();
-  let html = '<option value="">-- ทุกปี --</option>';
-  let fyHtml = '';
-  for (let y = curYear + 1; y >= 2020; y--) {
-    html += `<option value="${y}">${y + 543}</option>`;
-    fyHtml += `<option value="${y + 543}">ปีงบประมาณ ${y + 543}</option>`;
-  }
-  document.getElementById('filterYear').innerHTML = html;
-  document.getElementById('repYear').innerHTML = html;
-  const fyEl = document.getElementById('repFiscalYear');
-  if (fyEl) fyEl.innerHTML = fyHtml;
-  const rdEl = document.getElementById('repDate');
-  if (rdEl) rdEl.value = new Date().toISOString().slice(0, 10);
-}
-
-// ==================== TABS ====================
-document.getElementById('navTabs').addEventListener('click', (e) => {
-  const btn = e.target.closest('.side-btn');
-  if (!btn) return;
-  switchTab(btn.dataset.tab);
-});
 
 function switchTab(tab) {
   state.currentTab = tab;
-  document.querySelectorAll('.side-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.nav-pill').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.tab-view').forEach((v) => v.classList.add('hidden'));
 
-  if (tab === 'list' || tab === 'mine') {
-    state.mineOnly = tab === 'mine';
-    document.getElementById('listTitle').textContent = state.mineOnly
-      ? 'คำขอไปราชการของฉัน'
-      : state.viewMode === 'calendar'
-      ? 'ปฏิทินการเดินทางไปราชการ'
-      : 'รายการคำขอไปราชการ';
+  if (tab === 'mine') {
+    if (!state.user) return openLoginModal();
+    state.mineOnly = true;
     document.getElementById('view-list').classList.remove('hidden');
-    if (state.viewMode === 'calendar') loadCalendar();
-    else loadTravels(1);
+    document.getElementById('listTitle').textContent = '🎓 ประวัติอบรม / ไปราชการของฉัน';
+    setViewMode('table');
+  } else if (tab === 'list') {
+    state.mineOnly = false;
+    document.getElementById('view-list').classList.remove('hidden');
+    document.getElementById('listTitle').textContent = 'ปฏิทินการเดินทางไปราชการ / อบรม';
+    applyFilters();
   } else {
     document.getElementById(`view-${tab}`).classList.remove('hidden');
-    if (tab === 'create' && !document.getElementById('fStartDate').value) {
-      const today = new Date().toISOString().slice(0, 10);
-      document.getElementById('fStartDate').value = today;
-      document.getElementById('fEndDate').value = today;
-    }
-    if (tab === 'admin') loadAdminList(1);
     if (tab === 'reports') loadReports();
-    if (tab === 'units') renderUnits();
-    if (tab === 'users') loadUsers();
+    if (tab === 'admin') loadAdminList();
   }
 }
 
-// ==================== CALENDAR & LIST ====================
+function openCreateTab() {
+  if (!state.user) return openLoginModal();
+  resetTravelForm();
+  switchTab('create');
+}
+
+function filterByStatus(st) {
+  document.getElementById('filterStatus').value = String(st);
+  state.mineOnly = false;
+  switchTab('list');
+  setViewMode('table');
+}
+
 function setViewMode(mode) {
   state.viewMode = mode;
   document.getElementById('btnViewCal').classList.toggle('active', mode === 'calendar');
@@ -179,634 +154,503 @@ function setViewMode(mode) {
 }
 
 function applyFilters() {
-  const fy = document.getElementById('filterYear').value;
-  const fm = Number(document.getElementById('filterMonth').value || 0);
-  if (state.viewMode === 'calendar') {
-    if (fy) state.calYear = Number(fy);
-    if (fm > 0) state.calMonth = fm;
-    loadCalendar();
-  } else {
-    loadTravels(1);
-  }
+  if (state.viewMode === 'calendar') loadCalendar();
+  else loadTravels(1);
+}
+
+function resetFilters() {
+  document.getElementById('filterQ').value = '';
+  document.getElementById('filterMonth').value = '0';
+  document.getElementById('filterStatus').value = '';
+  applyFilters();
 }
 
 function shiftCalMonth(delta) {
   state.calMonth += delta;
-  if (state.calMonth > 12) {
-    state.calMonth = 1;
-    state.calYear += 1;
-  } else if (state.calMonth < 1) {
-    state.calMonth = 12;
-    state.calYear -= 1;
-  }
+  if (state.calMonth < 1) { state.calMonth = 12; state.calYear--; }
+  if (state.calMonth > 12) { state.calMonth = 1; state.calYear++; }
   loadCalendar();
 }
 
 function goCalToday() {
-  const now = new Date();
-  state.calYear = now.getFullYear();
-  state.calMonth = now.getMonth() + 1;
+  const n = new Date();
+  state.calYear = n.getFullYear();
+  state.calMonth = n.getMonth() + 1;
   loadCalendar();
 }
 
 async function loadCalendar() {
-  const y = state.calYear;
-  const m = state.calMonth;
-  document.getElementById('calMonthLabel').textContent = `${THAI_FULL_MONTHS[m - 1]} พ.ศ. ${y + 543}`;
-  document.getElementById('filterYear').value = String(y);
-  document.getElementById('filterMonth').value = String(m);
-
+  document.getElementById('calMonthLabel').textContent = `${THAI_FULL_MONTHS[state.calMonth - 1]} พ.ศ. ${state.calYear + 543}`;
   const params = new URLSearchParams({
-    page: 1,
-    limit: 500,
-    year: y,
-    month: m,
+    year: state.calYear,
+    month: state.calMonth,
+    limit: 300,
     q: document.getElementById('filterQ').value,
     status: document.getElementById('filterStatus').value,
-    travel_type: document.getElementById('filterType').value,
     mine: state.mineOnly ? '1' : '0',
   });
   const data = await api(`/api/travels?${params.toString()}`);
-
-  const byDate = {};
-  for (const r of data.items) {
-    const s = new Date(r.start_date);
-    const e = new Date(r.end_date || r.start_date);
-    for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-      const iso = d.toISOString().slice(0, 10);
-      if (!byDate[iso]) byDate[iso] = [];
-      byDate[iso].push(r);
-    }
-  }
-
-  const firstDay = new Date(y, m - 1, 1).getDay();
-  const daysInMonth = new Date(y, m, 0).getDate();
-  const prevMonthDays = new Date(y, m - 1, 0).getDate();
+  const items = data.items || [];
+  const firstDay = new Date(state.calYear, state.calMonth - 1, 1);
+  const startOffset = firstDay.getDay();
+  const daysInMonth = new Date(state.calYear, state.calMonth, 0).getDate();
   const todayIso = new Date().toISOString().slice(0, 10);
 
-  let html = THAI_DAYS.map((d, idx) => {
-    const cls = idx === 0 ? 'sun' : idx === 6 ? 'sat' : '';
-    return `<div class="cal-day-head ${cls}">${d}</div>`;
-  }).join('');
-
-  const totalCells = Math.ceil((firstDay + daysInMonth) / 7) * 7;
-  for (let cell = 0; cell < totalCells; cell++) {
-    const dayNum = cell - firstDay + 1;
-    let cellClass = 'cal-cell';
-    let displayNum = dayNum;
-    let isoDate = '';
-
-    if (dayNum <= 0) {
-      cellClass += ' other-month';
-      displayNum = prevMonthDays + dayNum;
-    } else if (dayNum > daysInMonth) {
-      cellClass += ' other-month';
-      displayNum = dayNum - daysInMonth;
-    } else {
-      isoDate = `${y}-${String(m).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-      if (isoDate === todayIso) cellClass += ' today';
-    }
-
-    const dayItems = isoDate ? byDate[isoDate] || [] : [];
-    const visibleItems = dayItems.slice(0, 4);
-    const hiddenCount = dayItems.length - visibleItems.length;
-
-    const itemsHtml = visibleItems
-      .map((r) => {
-        const st = STATUS_MAP[r.status] || { calCls: 'st-0' };
-        return `<div class="cal-item ${st.calCls}" title="${esc(r.subject)} (${esc(r.destination)})" onclick="viewTravel(${r.row_id})">
-          <strong>${esc(r.doc_no || '#' + r.row_id)}</strong> ${esc(r.subject)}
-        </div>`;
-      })
-      .join('');
-
-    const moreHtml = hiddenCount > 0 ? `<div class="cal-more" onclick="openDayInTable('${isoDate}')">+ อีก ${hiddenCount} รายการ</div>` : '';
-
+  let html = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'].map((d) => `<div class="cal-head-cell">${d}</div>`).join('');
+  for (let i = 0; i < 42; i++) {
+    const dayNum = i - startOffset + 1;
+    const d = new Date(state.calYear, state.calMonth - 1, dayNum);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const isOther = dayNum < 1 || dayNum > daysInMonth;
+    const dayItems = items.filter((x) => iso >= String(x.start_date).slice(0, 10) && iso <= String(x.end_date).slice(0, 10));
+    const chips = dayItems.slice(0, 3).map((r) => `
+      <div class="cal-chip" title="${esc(r.subject)}" onclick="openTravelPdf(${r.row_id}, '${r.memo_scope || 'in_province'}', '${esc(r.subject)}')">
+        ${esc(r.requester_name)} • ${esc(r.subject)}
+      </div>
+    `).join('');
     html += `
-      <div class="${cellClass}">
-        <div class="cal-cell-top">
-          <span class="cal-day-num">${displayNum}</span>
-          ${dayItems.length ? `<span class="cal-count">${dayItems.length} เรื่อง</span>` : ''}
-        </div>
-        ${itemsHtml}
-        ${moreHtml}
+      <div class="cal-cell ${isOther ? 'other' : ''} ${iso === todayIso ? 'today' : ''}">
+        <div class="cal-day-num">${d.getDate()}</div>
+        ${chips}
       </div>
     `;
   }
   document.getElementById('calendarGrid').innerHTML = html;
 }
 
-function openDayInTable(isoDate) {
-  setViewMode('table');
-  loadTravels(1, isoDate);
-}
-
-async function loadTravels(page = 1, exactDate = '') {
+async function loadTravels(page = 1) {
   state.page = page;
   const params = new URLSearchParams({
     page,
-    limit: 30,
-    date: exactDate,
-    q: document.getElementById('filterQ').value,
-    year: exactDate ? '' : document.getElementById('filterYear').value,
-    month: exactDate ? '0' : document.getElementById('filterMonth').value,
-    status: document.getElementById('filterStatus').value,
-    travel_type: document.getElementById('filterType').value,
-    mine: state.mineOnly ? '1' : '0',
-  });
-
-  const data = await api(`/api/travels?${params.toString()}`);
-  const tbody = document.getElementById('travelsTbody');
-
-  if (!data.items.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#64748b;padding:24px;">ไม่พบรายการขออนุมัติไปราชการ</td></tr>';
-  } else {
-    tbody.innerHTML = data.items
-      .map((r) => {
-        const st = STATUS_MAP[r.status] || { label: r.status, cls: 'badge-0' };
-        const canEdit = state.user && (state.user.isAdmin || r.user_id === state.user.row_id);
-        const dateTxt = r.start_date === r.end_date ? fmtThaiDate(r.start_date) : `${fmtThaiDate(r.start_date)} - ${fmtThaiDate(r.end_date)}`;
-        return `
-          <tr>
-            <td><strong>${esc(r.doc_no || '#' + r.row_id)}</strong></td>
-            <td style="white-space:nowrap">${dateTxt}<br><small style="color:#64748b">${esc(r.start_time)}-${esc(r.end_time)}</small></td>
-            <td><strong>${esc(r.subject)}</strong><br><small style="color:#64748b">${esc(r.travel_type)}</small></td>
-            <td>${esc(r.destination)}<br><small style="color:#64748b">จ.${esc(r.province)}</small></td>
-            <td>${esc(r.requester_name)}<br><small style="color:#64748b">${esc(r.unit_name || r.unit_custom || '-')}</small></td>
-            <td style="white-space:nowrap">${esc(r.transport_type)}<br><small style="color:#059669">${Number(r.estimated_cost || 0).toLocaleString()} บ.</small></td>
-            <td>${esc(r.assigned_to || '-')}</td>
-            <td><span class="badge ${st.cls}">${st.label}</span></td>
-            <td class="no-print" style="white-space:nowrap">
-              <button class="btn btn-outline btn-sm" onclick="viewTravel(${r.row_id})">${state.user?.isAdmin ? 'ดู PDF' : 'ดูรายละเอียด'}</button>
-              ${canEdit ? `<button class="btn btn-primary btn-sm" onclick="editTravel(${r.row_id})">แก้ไข</button>` : ''}
-              ${state.user?.isAdmin ? `<button class="btn btn-danger btn-sm" onclick="deleteTravel(${r.row_id})">ลบ</button>` : ''}
-            </td>
-          </tr>
-        `;
-      })
-      .join('');
-  }
-
-  document.getElementById('pagination').innerHTML = `
-    <div>ทั้งหมด <strong>${data.total.toLocaleString()}</strong> รายการ (หน้า ${data.page} / ${data.totalPages})</div>
-    <div style="display:flex;gap:6px;">
-      <button class="btn btn-outline btn-sm" ${data.page <= 1 ? 'disabled' : ''} onclick="loadTravels(${data.page - 1})">◀ ก่อนหน้า</button>
-      <button class="btn btn-outline btn-sm" ${data.page >= data.totalPages ? 'disabled' : ''} onclick="loadTravels(${data.page + 1})">ถัดไป ▶</button>
-    </div>
-  `;
-}
-
-function resetFilters() {
-  document.getElementById('filterQ').value = '';
-  document.getElementById('filterStatus').value = '';
-  document.getElementById('filterType').value = '';
-  if (state.viewMode === 'calendar') goCalToday();
-  else {
-    document.getElementById('filterYear').value = '';
-    document.getElementById('filterMonth').value = '0';
-    loadTravels(1);
-  }
-}
-
-document.getElementById('filterQ').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') applyFilters();
-});
-
-// ==================== PDF MODAL ====================
-function openPdfModal(title, pdfUrl) {
-  if (!state.user?.isAdmin) {
-    alert('เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถดาวน์โหลดหรือพิมพ์เอกสารได้');
-    return;
-  }
-  const modal = document.getElementById('detailModal');
-  const frame = document.getElementById('pdfFrame');
-  const loading = document.getElementById('pdfLoading');
-  const dlBtn = document.getElementById('pdfDownloadBtn');
-  const newTabBtn = document.getElementById('pdfNewTabBtn');
-
-  document.getElementById('pdfModalTitle').textContent = title;
-  const sep = pdfUrl.includes('?') ? '&' : '?';
-  dlBtn.href = `${pdfUrl}${sep}download=1`;
-  newTabBtn.href = pdfUrl;
-
-  loading.classList.remove('hidden');
-  frame.onload = () => loading.classList.add('hidden');
-  frame.src = pdfUrl;
-  modal.classList.remove('hidden');
-}
-
-function closePdfModal() {
-  document.getElementById('pdfFrame').src = 'about:blank';
-  closeModal('detailModal');
-}
-
-function printPdfFrame() {
-  const frame = document.getElementById('pdfFrame');
-  try {
-    frame.contentWindow.focus();
-    frame.contentWindow.print();
-  } catch {
-    window.open(document.getElementById('pdfNewTabBtn').href, '_blank');
-  }
-}
-
-async function openRequestDetailModal(id) {
-  const r = await api(`/api/travels/${id}`);
-  const st = STATUS_MAP[r.status] || { label: r.status || '-', cls: 'badge-0' };
-  const dateTxt = r.start_date === r.end_date ? fmtThaiDate(r.start_date) : `${fmtThaiDate(r.start_date)} - ${fmtThaiDate(r.end_date)}`;
-  const unit = r.unit_name || r.unit_custom || '-';
-  document.getElementById('reqDetailTitle').textContent = `รายละเอียดการขออนุมัติไปราชการ ${r.doc_no || '#' + r.row_id}`;
-  document.getElementById('reqDetailBody').innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;font-size:14px;">
-      <div><strong>เลขที่เอกสาร:</strong> ${esc(r.doc_no || '#' + r.row_id)}</div>
-      <div><strong>สถานะ:</strong> <span class="badge ${st.cls}">${st.label}</span></div>
-      <div><strong>วันที่ไปราชการ:</strong> ${dateTxt}</div>
-      <div><strong>เวลา:</strong> ${esc(r.start_time || '-')} - ${esc(r.end_time || '-')}</div>
-      <div style="grid-column:1/-1;"><strong>เรื่อง / ภารกิจ:</strong> ${esc(r.subject || '-')}</div>
-      <div><strong>ประเภท:</strong> ${esc(r.travel_type || '-')}</div>
-      <div><strong>สถานที่:</strong> ${esc(r.destination || '-')} จ.${esc(r.province || '-')}</div>
-      <div><strong>ผู้ขออนุมัติ:</strong> ${esc(r.requester_name || '-')}</div>
-      <div><strong>หน่วยงาน:</strong> ${esc(unit)}</div>
-      <div><strong>การเดินทาง:</strong> ${esc(r.transport_type || '-')}</div>
-      <div><strong>งบประมาณประมาณการ:</strong> ${Number(r.estimated_cost || 0).toLocaleString()} บาท</div>
-      <div style="grid-column:1/-1;"><strong>ผู้ร่วมเดินทาง / ผู้รับผิดชอบ:</strong> ${esc(r.companions || r.assigned_to || '-')}</div>
-      <div style="grid-column:1/-1;"><strong>รายละเอียดเพิ่มเติม:</strong> ${esc(r.memo || '-')}</div>
-      <div style="grid-column:1/-1;"><strong>ความเห็นผู้ดูแลระบบ:</strong> ${esc(r.admin_note || r.memo1 || '-')}</div>
-    </div>
-  `;
-  document.getElementById('requestDetailModal').classList.remove('hidden');
-}
-
-function viewTravel(id) {
-  if (state.user?.isAdmin) {
-    openPdfModal(`ใบขออนุมัติเดินทางไปราชการ #${id} (ขนาด A4)`, `/api/travels/${id}/pdf`);
-  } else {
-    openRequestDetailModal(id).catch((err) => alert(err.message));
-  }
-}
-
-function printBoard() {
-  const params = new URLSearchParams({
+    limit: 20,
     q: document.getElementById('filterQ').value,
     year: document.getElementById('filterYear').value,
     month: document.getElementById('filterMonth').value,
     status: document.getElementById('filterStatus').value,
-    travel_type: document.getElementById('filterType').value,
+    mine: state.mineOnly ? '1' : '0',
   });
-  openPdfModal('รายงานสรุปการเดินทางไปราชการ (ขนาด A4 แนวนอน)', `/api/travels/board/pdf?${params.toString()}`);
+  const data = await api(`/api/travels?${params.toString()}`);
+  document.getElementById('travelTbody').innerHTML = (data.items || []).map((r) => {
+    const isOwner = state.user && Number(r.requester_person_id) === Number(state.user.person_id);
+    const canEdit = state.user && (state.user.isAdmin || isOwner || Boolean(r.is_companion));
+    const defForm = r.memo_scope === 'out_province' ? 'memo_out' : 'memo_in';
+    return `
+      <tr>
+        <td><code>${esc(r.doc_no || `#${r.row_id}`)}</code><br><small style="color:#64748b">${r.memo_scope === 'out_province' ? 'นอกเขต จ.' : 'ในเขต จ.'}</small></td>
+        <td><strong>${esc(r.subject)}</strong><br><small style="color:#64748b">${esc(r.organizer || r.travel_type || '')}</small></td>
+        <td>${esc(r.destination)}<br><small style="color:#64748b">${esc(r.province || '')}</small></td>
+        <td style="white-space:nowrap">${fmtThaiDate(r.start_date)} - ${fmtThaiDate(r.end_date)}<br><small style="color:#64748b">${r.total_days || 1} วัน</small></td>
+        <td>${esc(r.transport_type || '-')}<br><small style="color:#0f766e;font-weight:600">${Number(r.estimated_cost || 0).toLocaleString()} บ.</small></td>
+        <td><strong>${esc(r.requester_name)}</strong>${r.travelers ? `<br><small style="color:#0f766e">👥 ${esc(r.travelers)}</small>` : ''}</td>
+        <td><span class="badge badge-${r.status || 0}">${esc(STATUS_LABELS[r.status] || 'รออนุมัติ')}</span></td>
+        <td style="white-space:nowrap">
+          ${state.user ? `<button class="btn-aurora btn-sm" onclick="openTravelPdf(${r.row_id}, '${defForm}', '${esc(r.subject)}')">🖨️ พิมพ์/PDF</button>` : ''}
+          ${canEdit ? `<button class="btn-soft btn-sm" onclick="editTravel(${r.row_id})">✏️ แก้ไข</button>` : ''}
+          ${state.user?.isAdmin ? `<button class="btn-danger btn-sm" onclick="deleteTravel(${r.row_id})">ลบ</button>` : ''}
+        </td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="8" style="text-align:center;padding:24px;color:#64748b;">ไม่พบรายการไปราชการ</td></tr>';
+
+  document.getElementById('paginationBar').innerHTML = `
+    <div>ทั้งหมด <strong>${Number(data.total || 0).toLocaleString()}</strong> รายการ (หน้า ${data.page} / ${data.totalPages})</div>
+    <div style="display:flex;gap:6px;">
+      <button class="btn-soft btn-sm" ${data.page <= 1 ? 'disabled' : ''} onclick="loadTravels(${data.page - 1})">◀ ก่อนหน้า</button>
+      <button class="btn-soft btn-sm" ${data.page >= data.totalPages ? 'disabled' : ''} onclick="loadTravels(${data.page + 1})">ถัดไป ▶</button>
+    </div>
+  `;
 }
 
-// ==================== CREATE / EDIT ====================
+// ==================== COMPANIONS & ESTIMATE TABLE ====================
 function resetTravelForm() {
-  document.getElementById('travelForm').reset();
-  document.getElementById('fRowId').value = '';
-  document.getElementById('travelFormTitle').textContent = 'แบบฟอร์มขออนุมัติเดินทางไปราชการ';
   const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('fRowId').value = '';
+  document.getElementById('formTitle').textContent = '✈️ ยื่นขออนุมัติไปราชการออนไลน์ (สร้างเอกสารชุด 4 แบบอัตโนมัติ)';
+  document.getElementById('fMemoScope').value = 'in_province';
+  document.getElementById('fDocNo').value = '';
+  document.getElementById('fMemoDate').value = today;
+  document.getElementById('fSubject').value = '';
+  document.getElementById('fOrganizer').value = '';
+  document.getElementById('fRequestDept').value = state.user?.department_name || '';
+  document.getElementById('fDestination').value = '';
+  document.getElementById('fProvinceId').value = '';
   document.getElementById('fStartDate').value = today;
   document.getElementById('fEndDate').value = today;
-  if (state.user) {
-    document.getElementById('fRequesterName').value = state.user.fullName;
-    document.getElementById('fRequesterPos').value = state.user.position || '';
-    document.getElementById('fRequesterTel').value = state.user.telephone || '';
-    if (state.user.unit_id) document.getElementById('fUnitId').value = state.user.unit_id;
+  document.getElementById('fTotalDays').value = '1';
+  document.getElementById('fTransport').value = 'รถโรงพยาบาล';
+  document.getElementById('fDistanceKm').value = '0';
+  document.getElementById('fOrgBudgetText').value = '';
+  document.getElementById('fAttNecessity').value = '';
+  document.getElementById('fAttDelegate').value = '';
+  document.getElementById('fAttSharer').value = '';
+  document.getElementById('fAttBenefit').value = '';
+  document.getElementById('fAttPlan1').value = '';
+  document.getElementById('fAttPlan2').value = '';
+  document.getElementById('fAttPlan3').value = '';
+  document.getElementById('fReqName').value = state.user?.fullName || '';
+  document.getElementById('fReqPos').value = state.user?.position || '';
+  document.getElementById('fHeadName').value = '';
+  document.getElementById('fHeadPos').value = '';
+  document.querySelector('input[name="attHistory"][value="never"]').checked = true;
+  state.companions = [{
+    person_id: state.user?.person_id || null,
+    full_name: state.user?.fullName || '',
+    position: state.user?.position || '',
+    level_name: '',
+    allowance_fee: 0, hotel_fee: 0, travel_fee: 0, register_fee: 0, other_fee: 0,
+  }];
+  renderCompanionsTable();
+}
+
+function addCompanionRow() {
+  state.companions.push({
+    person_id: null, full_name: '', position: '', level_name: '',
+    allowance_fee: 0, hotel_fee: 0, travel_fee: 0, register_fee: 0, other_fee: 0,
+  });
+  renderCompanionsTable();
+}
+
+function removeCompanionRow(idx) {
+  state.companions.splice(idx, 1);
+  if (!state.companions.length) addCompanionRow();
+  else renderCompanionsTable();
+}
+
+function renderCompanionsTable() {
+  const tbody = document.getElementById('companionsEstTbody');
+  tbody.innerHTML = state.companions.map((c, idx) => {
+    const rowSum = Number(c.allowance_fee || 0) + Number(c.hotel_fee || 0) + Number(c.travel_fee || 0) + Number(c.register_fee || 0) + Number(c.other_fee || 0);
+    return `
+      <tr>
+        <td style="text-align:center;font-weight:700;">${idx + 1}</td>
+        <td>
+          <div class="comp-ac-wrap">
+            <input type="text" value="${esc(c.full_name || '')}" placeholder="พิมพ์ค้นหาชื่อ-สกุล..."
+                   oninput="onCompNameInput(${idx}, this.value)" onfocus="onCompNameInput(${idx}, this.value)" onblur="hideCompDrop(${idx})" />
+            <div id="compDrop_${idx}" class="comp-ac-dropdown hidden"></div>
+          </div>
+        </td>
+        <td><input type="text" value="${esc(c.position || '')}" oninput="state.companions[${idx}].position=this.value" placeholder="ตำแหน่ง" /></td>
+        <td><input type="text" value="${esc(c.level_name || '')}" oninput="state.companions[${idx}].level_name=this.value" placeholder="เช่น ชำนาญการ" /></td>
+        <td><input type="number" step="1" min="0" value="${Number(c.allowance_fee || 0)}" oninput="onCompFeeInput(${idx}, 'allowance_fee', this.value)" /></td>
+        <td><input type="number" step="1" min="0" value="${Number(c.hotel_fee || 0)}" oninput="onCompFeeInput(${idx}, 'hotel_fee', this.value)" /></td>
+        <td><input type="number" step="1" min="0" value="${Number(c.travel_fee || 0)}" oninput="onCompFeeInput(${idx}, 'travel_fee', this.value)" /></td>
+        <td><input type="number" step="1" min="0" value="${Number(c.register_fee || 0)}" oninput="onCompFeeInput(${idx}, 'register_fee', this.value)" /></td>
+        <td><input type="number" step="1" min="0" value="${Number(c.other_fee || 0)}" oninput="onCompFeeInput(${idx}, 'other_fee', this.value)" /></td>
+        <td id="compRowSum_${idx}" style="text-align:right;font-weight:700;color:#0f766e;">${rowSum.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+        <td><button type="button" class="btn-danger btn-sm" onclick="removeCompanionRow(${idx})">✕</button></td>
+      </tr>
+    `;
+  }).join('');
+  recalcDaysAndTotals();
+}
+
+function onCompNameInput(idx, val) {
+  state.companions[idx].full_name = val;
+  const q = String(val || '').trim().toLowerCase();
+  const drop = document.getElementById(`compDrop_${idx}`);
+  if (!drop) return;
+  const persons = state.master?.persons || [];
+  const matches = (q ? persons.filter((p) => `${p.full_name} ${p.position_name}`.toLowerCase().includes(q)) : persons).slice(0, 20);
+  if (!matches.length) { drop.classList.add('hidden'); return; }
+  drop.innerHTML = matches.map((p) => `
+    <div class="comp-ac-item" onmousedown="event.preventDefault();pickCompanion(${idx}, ${p.person_id})">
+      <strong>${esc(p.full_name)}</strong><small style="color:#0f766e">${esc(p.position_name || '')}</small>
+    </div>
+  `).join('');
+  drop.classList.remove('hidden');
+}
+
+function pickCompanion(idx, personId) {
+  const p = (state.master?.persons || []).find((x) => Number(x.person_id) === Number(personId));
+  if (!p) return;
+  state.companions[idx].person_id = p.person_id;
+  state.companions[idx].full_name = p.full_name;
+  state.companions[idx].position = p.position_name || '';
+  renderCompanionsTable();
+}
+
+function hideCompDrop(idx) {
+  setTimeout(() => document.getElementById(`compDrop_${idx}`)?.classList.add('hidden'), 150);
+}
+
+function onCompFeeInput(idx, field, val) {
+  state.companions[idx][field] = Number(val || 0);
+  const c = state.companions[idx];
+  const rowSum = Number(c.allowance_fee || 0) + Number(c.hotel_fee || 0) + Number(c.travel_fee || 0) + Number(c.register_fee || 0) + Number(c.other_fee || 0);
+  const cell = document.getElementById(`compRowSum_${idx}`);
+  if (cell) cell.textContent = rowSum.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+  recalcDaysAndTotals();
+}
+
+function recalcDaysAndTotals() {
+  const s = new Date(document.getElementById('fStartDate').value);
+  const e = new Date(document.getElementById('fEndDate').value);
+  if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) {
+    const diff = Math.round((e - s) / 86400000) + 1;
+    document.getElementById('fTotalDays').value = String(diff > 0 ? diff : 1);
+  }
+  let sA = 0, sH = 0, sT = 0, sR = 0, sO = 0;
+  state.companions.forEach((c) => {
+    sA += Number(c.allowance_fee || 0);
+    sH += Number(c.hotel_fee || 0);
+    sT += Number(c.travel_fee || 0);
+    sR += Number(c.register_fee || 0);
+    sO += Number(c.other_fee || 0);
+  });
+  const fmt = (n) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+  document.getElementById('sumAllow').textContent = fmt(sA);
+  document.getElementById('sumHotel').textContent = fmt(sH);
+  document.getElementById('sumTravel').textContent = fmt(sT);
+  document.getElementById('sumReg').textContent = fmt(sR);
+  document.getElementById('sumOther').textContent = fmt(sO);
+  document.getElementById('sumTotal').textContent = fmt(sA + sH + sT + sR + sO);
+}
+
+function onTravelAutoCalc() {
+  const provId = Number(document.getElementById('fProvinceId').value || 0);
+  const mode = document.getElementById('fTransport').value;
+  const rate = (state.master?.travelRates || []).find((r) => Number(r.province_id) === provId);
+  if (rate) {
+    document.getElementById('fDistanceKm').value = Number(rate.distance_roundtrip_km || 0);
+    if (rate.province_name_th && rate.province_name_th !== 'สกลนคร') {
+      document.getElementById('fMemoScope').value = 'out_province';
+    }
+  }
+  const dist = Number(document.getElementById('fDistanceKm').value || 0);
+  let fare = 0;
+  if (mode === 'รถยนต์ส่วนตัว') fare = dist * (rate ? Number(rate.private_car_rate || 4) : 4);
+  else if (mode === 'รถประจำทาง') fare = rate ? Number(rate.bus_fare || 0) : 0;
+  else if (mode === 'เครื่องบิน') fare = rate ? Number(rate.flight_fare || 0) : 0;
+  else if (mode === 'รถไฟ') fare = rate ? Number(rate.train_fare || 0) : 0;
+  if (state.companions.length && fare >= 0) {
+    state.companions[0].travel_fee = Math.round(fare * 100) / 100;
+    renderCompanionsTable();
+  }
+}
+
+function onDistanceInput() {
+  if (document.getElementById('fTransport').value === 'รถยนต์ส่วนตัว') {
+    onTravelAutoCalc();
   }
 }
 
 async function editTravel(id) {
-  const r = await api(`/api/travels/${id}`);
+  const item = await api(`/api/travels/${id}`);
+  resetTravelForm();
+  document.getElementById('fRowId').value = item.row_id;
+  document.getElementById('formTitle').textContent = `✏️ แก้ไขคำขอไปราชการ #${item.row_id}`;
+  document.getElementById('fMemoScope').value = item.memo_scope || 'in_province';
+  document.getElementById('fTravelType').value = item.travel_type || 'ประชุม/สัมมนา';
+  document.getElementById('fDocNo').value = item.doc_no || '';
+  document.getElementById('fMemoDate').value = String(item.memo_date || item.start_date).slice(0, 10);
+  document.getElementById('fSubject').value = item.subject || '';
+  document.getElementById('fOrganizer').value = item.organizer || '';
+  document.getElementById('fRequestDept').value = item.request_dept || '';
+  document.getElementById('fDestination').value = item.destination || '';
+  document.getElementById('fProvinceId').value = item.province_id || '';
+  document.getElementById('fStartDate').value = String(item.start_date).slice(0, 10);
+  document.getElementById('fEndDate').value = String(item.end_date || item.start_date).slice(0, 10);
+  document.getElementById('fTotalDays').value = item.total_days || 1;
+  document.getElementById('fTransport').value = item.transport_type || 'รถโรงพยาบาล';
+  document.getElementById('fDistanceKm').value = item.distance_km || 0;
+  document.getElementById('fOrgBudgetText').value = item.org_budget_text || '';
+  document.getElementById('fReqName').value = item.requester_name || '';
+  document.getElementById('fReqPos').value = item.requester_position || '';
+  document.getElementById('fHeadName').value = item.head_name || '';
+  document.getElementById('fHeadPos').value = item.head_position || '';
+  document.getElementById('fDirName').value = item.director_name || 'นางณัฐปภัสร์ นวัตชัยศิริกุล';
+  document.getElementById('fDirPos1').value = item.director_pos1 || 'นายแพทย์ชำนาญการพิเศษ รักษาการในตำแหน่ง';
+
+  const att = item.attachment || {};
+  const hs = att.history_status || 'never';
+  const rad = document.querySelector(`input[name="attHistory"][value="${hs}"]`);
+  if (rad) rad.checked = true;
+  document.getElementById('fAttNecessity').value = att.necessity_reason || '';
+  document.getElementById('fAttDelegate').value = att.delegate_name || '';
+  document.getElementById('fAttSharer').value = att.knowledge_sharer || '';
+  document.getElementById('fAttBenefit').value = att.expected_benefit || '';
+  document.getElementById('fAttPlan1').value = att.post_action_1 || '';
+  document.getElementById('fAttPlan2').value = att.post_action_2 || '';
+  document.getElementById('fAttPlan3').value = att.post_action_3 || '';
+
+  state.companions = (item.companions || []).length
+    ? item.companions.map((c) => ({ ...c }))
+    : [{ person_id: item.requester_person_id || null, full_name: item.requester_name, position: item.requester_position, level_name: '', allowance_fee: item.allowance_cost, hotel_fee: item.hotel_cost, travel_fee: item.travel_cost, register_fee: item.reg_cost, other_fee: item.other_cost }];
+  renderCompanionsTable();
   switchTab('create');
-  document.getElementById('travelFormTitle').textContent = `แก้ไขคำขอไปราชการ ${r.doc_no || '#' + r.row_id}`;
-  document.getElementById('fRowId').value = r.row_id;
-  document.getElementById('fSubject').value = r.subject || '';
-  document.getElementById('fTravelType').value = r.travel_type || 'ประชุม/สัมมนา';
-  document.getElementById('fUnitId').value = r.unit_id || 0;
-  document.getElementById('fDestination').value = r.destination || '';
-  document.getElementById('fProvince').value = r.province || 'สกลนคร';
-  document.getElementById('fStartDate').value = (r.start_date || '').slice(0, 10);
-  document.getElementById('fEndDate').value = (r.end_date || '').slice(0, 10);
-  document.getElementById('fStartTime').value = r.start_time || '08:30';
-  document.getElementById('fEndTime').value = r.end_time || '16:30';
-  document.getElementById('fTravelers').value = r.travelers || '';
-  document.getElementById('fTravelerCount').value = r.traveler_count || 1;
-  document.getElementById('fTransportType').value = r.transport_type || 'รถโรงพยาบาล';
-  document.getElementById('fBudgetSource').value = r.budget_source || 'งบโรงพยาบาล';
-  document.getElementById('fEstimatedCost').value = r.estimated_cost || 0;
-  document.getElementById('fRequesterName').value = r.requester_name || '';
-  document.getElementById('fRequesterPos').value = r.requester_position || '';
-  document.getElementById('fRequesterTel').value = r.requester_tel || '';
-  document.getElementById('fMemo').value = r.memo || '';
 }
 
 async function submitTravel(e) {
   e.preventDefault();
-  if (!state.user) return openLoginModal();
-
   const id = document.getElementById('fRowId').value;
+  const provId = Number(document.getElementById('fProvinceId').value || 0);
+  const provRow = (state.master?.travelRates || []).find((r) => Number(r.province_id) === provId);
+  let allow = 0, hotel = 0, travel = 0, reg = 0, other = 0;
+  state.companions.forEach((c) => {
+    allow += Number(c.allowance_fee || 0);
+    hotel += Number(c.hotel_fee || 0);
+    travel += Number(c.travel_fee || 0);
+    reg += Number(c.register_fee || 0);
+    other += Number(c.other_fee || 0);
+  });
+
   const payload = {
-    subject: document.getElementById('fSubject').value,
+    doc_no: document.getElementById('fDocNo').value,
+    memo_scope: document.getElementById('fMemoScope').value,
+    memo_date: document.getElementById('fMemoDate').value,
     travel_type: document.getElementById('fTravelType').value,
-    unit_id: Number(document.getElementById('fUnitId').value || 0),
+    subject: document.getElementById('fSubject').value,
+    organizer: document.getElementById('fOrganizer').value,
+    request_dept: document.getElementById('fRequestDept').value,
     destination: document.getElementById('fDestination').value,
-    province: document.getElementById('fProvince').value,
+    province_id: provId || null,
+    province: provRow ? provRow.province_name_th : 'สกลนคร',
+    distance_km: document.getElementById('fDistanceKm').value,
     start_date: document.getElementById('fStartDate').value,
     end_date: document.getElementById('fEndDate').value,
-    start_time: document.getElementById('fStartTime').value,
-    end_time: document.getElementById('fEndTime').value,
-    travelers: document.getElementById('fTravelers').value,
-    traveler_count: Number(document.getElementById('fTravelerCount').value || 1),
-    transport_type: document.getElementById('fTransportType').value,
-    budget_source: document.getElementById('fBudgetSource').value,
-    estimated_cost: Number(document.getElementById('fEstimatedCost').value || 0),
-    requester_name: document.getElementById('fRequesterName').value,
-    requester_position: document.getElementById('fRequesterPos').value,
-    requester_tel: document.getElementById('fRequesterTel').value,
-    memo: document.getElementById('fMemo').value,
+    total_days: document.getElementById('fTotalDays').value,
+    transport_type: document.getElementById('fTransport').value,
+    org_budget_text: document.getElementById('fOrgBudgetText').value,
+    allowance_cost: allow,
+    hotel_cost: hotel,
+    travel_cost: travel,
+    reg_cost: reg,
+    other_cost: other,
+    estimated_cost: allow + hotel + travel + reg + other,
+    requester_name: document.getElementById('fReqName').value,
+    requester_position: document.getElementById('fReqPos').value,
+    head_name: document.getElementById('fHeadName').value,
+    head_position: document.getElementById('fHeadPos').value,
+    director_name: document.getElementById('fDirName').value,
+    director_pos1: document.getElementById('fDirPos1').value,
+    companions: state.companions.filter((c) => String(c.full_name || '').trim()),
+    attachment: {
+      history_status: document.querySelector('input[name="attHistory"]:checked')?.value || 'never',
+      necessity_reason: document.getElementById('fAttNecessity').value,
+      delegate_name: document.getElementById('fAttDelegate').value,
+      knowledge_sharer: document.getElementById('fAttSharer').value,
+      expected_benefit: document.getElementById('fAttBenefit').value,
+      post_action_1: document.getElementById('fAttPlan1').value,
+      post_action_2: document.getElementById('fAttPlan2').value,
+      post_action_3: document.getElementById('fAttPlan3').value,
+    },
   };
 
   try {
+    let savedId = id;
     if (id) {
       await api(`/api/travels/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
-      alert('บันทึกการแก้ไขเรียบร้อยแล้ว');
     } else {
       const res = await api('/api/travels', { method: 'POST', body: JSON.stringify(payload) });
-      alert(`ยื่นคำขอไปราชการเรียบร้อยแล้ว (${res.doc_no})`);
+      savedId = res.row_id;
     }
-    resetTravelForm();
     await loadStats();
-    switchTab('list');
+    switchTab('mine');
+    if (savedId) {
+      openTravelPdf(savedId, payload.memo_scope === 'out_province' ? 'memo_out' : 'memo_in', payload.subject);
+    }
   } catch (err) {
     alert(err.message);
   }
 }
 
 async function deleteTravel(id) {
-  if (!confirm(`ยืนยันการลบคำขอไปราชการ #${id} ?`)) return;
+  if (!confirm(`ลบคำขอไปราชการ #${id}?`)) return;
   await api(`/api/travels/${id}`, { method: 'DELETE' });
-  await loadStats();
-  loadTravels(state.page);
+  loadStats();
+  applyFilters();
 }
 
-// ==================== ADMIN APPROVAL ====================
-async function loadAdminList(page = 1) {
-  const params = new URLSearchParams({
-    page,
-    limit: 30,
-    status: document.getElementById('adminFilterStatus').value,
-    q: document.getElementById('adminFilterQ').value,
-  });
-  const data = await api(`/api/travels?${params.toString()}`);
-  const tbody = document.getElementById('adminTbody');
-
-  if (!data.items.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:24px;">ไม่พบรายการในสถานะที่เลือก</td></tr>';
-  } else {
-    tbody.innerHTML = data.items
-      .map((r) => {
-        const st = STATUS_MAP[r.status] || { label: r.status, cls: 'badge-0' };
-        return `
-          <tr>
-            <td><strong>${esc(r.doc_no || '#' + r.row_id)}</strong></td>
-            <td style="white-space:nowrap">${fmtThaiDate(r.start_date)}</td>
-            <td><strong>${esc(r.subject)}</strong><br><small style="color:#64748b">${esc(r.destination)} (จ.${esc(r.province)})</small></td>
-            <td>${esc(r.requester_name)}<br><small style="color:#64748b">${esc(r.unit_name || '-')}</small></td>
-            <td>${Number(r.estimated_cost || 0).toLocaleString()}</td>
-            <td>${esc(r.assigned_to || '-')}</td>
-            <td><span class="badge ${st.cls}">${st.label}</span></td>
-            <td style="white-space:nowrap">
-              <button class="btn btn-outline btn-sm" onclick="viewTravel(${r.row_id})">👁️ ดู PDF</button>
-              <button class="btn btn-primary btn-sm" onclick="openAdminActionModal(${r.row_id})">✅ อนุมัติ / มอบหมาย</button>
-            </td>
-          </tr>
-        `;
-      })
-      .join('');
-  }
-
-  document.getElementById('adminPagination').innerHTML = `
-    <div>ทั้งหมด <strong>${data.total.toLocaleString()}</strong> รายการ</div>
-    <div style="display:flex;gap:6px;">
-      <button class="btn btn-outline btn-sm" ${data.page <= 1 ? 'disabled' : ''} onclick="loadAdminList(${data.page - 1})">◀ ก่อนหน้า</button>
-      <button class="btn btn-outline btn-sm" ${data.page >= data.totalPages ? 'disabled' : ''} onclick="loadAdminList(${data.page + 1})">ถัดไป ▶</button>
-    </div>
-  `;
-}
-
-async function openAdminActionModal(id) {
-  const r = await api(`/api/travels/${id}`);
-  document.getElementById('aaRowId').textContent = r.doc_no || r.row_id;
-  document.getElementById('aaId').value = r.row_id;
-  document.getElementById('aaSummary').innerHTML = `
-    <strong>เรื่อง:</strong> ${esc(r.subject)}<br>
-    <strong>สถานที่:</strong> ${esc(r.destination)} (จ.${esc(r.province)}) | <strong>ผู้ขอ:</strong> ${esc(r.requester_name)} | <strong>งบประมาณการ:</strong> ${Number(r.estimated_cost || 0).toLocaleString()} บ.
-  `;
-  document.getElementById('aaStatus').value = String(r.status ?? 0);
-  document.getElementById('aaActualCost').value = r.actual_cost || r.estimated_cost || 0;
-  document.getElementById('aaAssignedTo').value = r.assigned_to || '';
-  document.getElementById('aaNote').value = r.approval_note || '';
-  document.getElementById('adminActionModal').classList.remove('hidden');
-}
-
-async function submitAdminAction(e) {
-  e.preventDefault();
-  const id = document.getElementById('aaId').value;
-  await api(`/api/travels/${id}/approve`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      status: Number(document.getElementById('aaStatus').value),
-      actual_cost: Number(document.getElementById('aaActualCost').value || 0),
-      assigned_to: document.getElementById('aaAssignedTo').value,
-      approval_note: document.getElementById('aaNote').value,
-    }),
-  });
-  closeModal('adminActionModal');
-  await loadStats();
-  loadAdminList(1);
-}
-
-// ==================== REPORTS ====================
-function toggleReportMode() {
-  const mode = document.getElementById('repMode').value;
-  document.getElementById('repDate').classList.toggle('hidden', mode !== 'date');
-  document.getElementById('repMonth').classList.toggle('hidden', mode !== 'month');
-  document.getElementById('repYear').classList.toggle('hidden', mode !== 'month');
-  document.getElementById('repFiscalYear').classList.toggle('hidden', mode !== 'fiscal');
-}
-
-function getReportQueryString() {
-  const mode = document.getElementById('repMode').value;
-  const params = new URLSearchParams();
-  if (mode === 'date') {
-    const d = document.getElementById('repDate').value;
-    if (d) params.set('date', d);
-  } else if (mode === 'month') {
-    const y = document.getElementById('repYear').value;
-    const m = document.getElementById('repMonth').value;
-    if (y) params.set('year', y);
-    if (m && m !== '0') params.set('month', m);
-  } else if (mode === 'fiscal') {
-    const fy = document.getElementById('repFiscalYear').value;
-    if (fy) params.set('fiscalYear', fy);
-  }
-  return params.toString();
-}
-
-function printReportSection(section, title) {
-  const qs = getReportQueryString();
-  const url = `/api/reports/pdf?section=${section}${qs ? '&' + qs : ''}`;
-  openPdfModal(`${title} (ขนาด A4)`, url);
-}
-
+// ==================== REPORTS & ADMIN ====================
 async function loadReports() {
-  const qs = getReportQueryString();
-  const data = await api(`/api/reports/summary${qs ? '?' + qs : ''}`);
-
-  const box = (title, section, headers, rowsHtml) => `
-    <div class="report-box">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-        <h4 style="margin:0;">${title}</h4>
-        ${state.user?.isAdmin ? `<button class="btn btn-outline btn-sm" onclick="printReportSection('${section}', '${title}')">🖨️ พิมพ์ / PDF</button>` : ''}
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
-          <tbody>${rowsHtml || '<tr><td colspan="4">ไม่มีข้อมูล</td></tr>'}</tbody>
-        </table>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('reportsContent').innerHTML =
-    box('รายงานสรุปตามหน่วยงาน', 'department', ['หน่วยงาน', 'ครั้ง', 'ประมาณการ (บ.)', 'ใช้จริง (บ.)'], data.byDepartment.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.total}</td><td>${Number(r.est_cost).toLocaleString()}</td><td>${Number(r.act_cost).toLocaleString()}</td></tr>`).join('')) +
-    box('รายงานสรุปตามประเภทการไปราชการ', 'type', ['ประเภท', 'ครั้ง', 'งบประมาณการ (บ.)'], data.byType.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.total}</td><td>${Number(r.est_cost).toLocaleString()}</td></tr>`).join('')) +
-    box('รายงานสรุปตามพาหนะเดินทาง', 'transport', ['พาหนะ', 'จำนวน (ครั้ง)'], data.byTransport.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.total}</td></tr>`).join('')) +
-    box('รายงานสรุปตามสถานะ', 'status', ['สถานะ', 'จำนวน'], data.byStatus.map((r) => `<tr><td>${(STATUS_MAP[r.status] || {}).label || r.status}</td><td>${r.total}</td></tr>`).join(''));
+  const d = await api('/api/reports/summary');
+  const tbl = (title, cols, rows) => `
+    <div class="report-box"><h3>${title}</h3><div class="table-wrap"><table>
+      <thead><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr></thead>
+      <tbody>${rows || '<tr><td colspan="3">ไม่มีข้อมูล</td></tr>'}</tbody>
+    </table></div></div>`;
+  document.getElementById('reportsGrid').innerHTML =
+    tbl('สรุปตามหน่วยงาน', ['หน่วยงาน', 'ครั้ง', 'งบประมาณ (บ.)'], d.byDepartment.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.total}</td><td>${Number(r.est_cost || 0).toLocaleString()}</td></tr>`).join('')) +
+    tbl('สรุปตามพาหนะ', ['พาหนะ', 'ครั้ง'], d.byTransport.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.total}</td></tr>`).join(''));
 }
 
-// ==================== MASTER CRUD ====================
-function renderUnits() {
-  document.getElementById('unitsTbody').innerHTML = state.units
-    .map(
-      (u) => `
-      <tr>
-        <td>${u.row_id}</td>
-        <td>${esc(u.unit_code || '-')}</td>
-        <td><strong>${esc(u.unit_name)}</strong></td>
-        <td>${esc(u.unit_head || '-')}</td>
-        <td>${esc(u.tel || '-')}</td>
-        <td>
-          <button class="btn btn-outline btn-sm" onclick="openMasterModal('unit', ${u.row_id})">แก้ไข</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteMaster('units', ${u.row_id}, renderUnits)">ลบ</button>
-        </td>
-      </tr>`
-    )
-    .join('');
+async function loadAdminList() {
+  const data = await api('/api/travels?limit=50');
+  document.getElementById('adminTbody').innerHTML = (data.items || []).map((r) => `
+    <tr>
+      <td><code>${esc(r.doc_no || `#${r.row_id}`)}</code></td>
+      <td><strong>${esc(r.subject)}</strong><br><small>${esc(r.requester_name)}</small></td>
+      <td>${esc(r.destination)} (${esc(r.province)})</td>
+      <td>${fmtThaiDate(r.start_date)}</td>
+      <td>${Number(r.estimated_cost || 0).toLocaleString()} บ.</td>
+      <td><span class="badge badge-${r.status || 0}">${esc(STATUS_LABELS[r.status] || 'รออนุมัติ')}</span></td>
+      <td style="white-space:nowrap">
+        <button class="btn-aurora btn-sm" onclick="approveTravel(${r.row_id}, 1)">✓ อนุมัติ</button>
+        <button class="btn-danger btn-sm" onclick="approveTravel(${r.row_id}, 9)">✕ ไม่อนุมัติ</button>
+        <button class="btn-soft btn-sm" onclick="openTravelPdf(${r.row_id}, 'all', '${esc(r.subject)}')">🖨️ PDF</button>
+      </td>
+    </tr>
+  `).join('');
 }
 
-let cachedUsers = [];
-async function loadUsers() {
-  cachedUsers = await api('/api/users');
-  document.getElementById('usersTbody').innerHTML = cachedUsers
-    .map(
-      (u) => `
-      <tr>
-        <td>${u.row_id}</td>
-        <td><strong>${esc(u.full_name)}</strong></td>
-        <td>${esc(u.position || '-')}</td>
-        <td>${esc(u.username)}</td>
-        <td>${esc(u.unit_name || '-')}</td>
-        <td><span class="badge ${u.role === 'admin' ? 'badge-2' : 'badge-1'}">${u.role === 'admin' ? 'ผู้อนุมัติ/Admin' : 'ผู้ใช้ทั่วไป'}</span></td>
-        <td>
-          <button class="btn btn-outline btn-sm" onclick="openMasterModal('user', ${u.row_id})">แก้ไข</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteMaster('users', ${u.row_id}, loadUsers)">ลบ</button>
-        </td>
-      </tr>`
-    )
-    .join('');
+async function approveTravel(id, status) {
+  await api(`/api/travels/${id}/approve`, { method: 'PATCH', body: JSON.stringify({ status }) });
+  loadStats();
+  loadAdminList();
 }
 
-function openMasterModal(type, id = null) {
-  state.masterType = type;
-  state.masterEditId = id;
-  const form = document.getElementById('masterForm');
-  const title = document.getElementById('masterModalTitle');
-
-  if (type === 'unit') {
-    const item = id ? state.units.find((x) => x.row_id === id) : {};
-    title.textContent = id ? 'แก้ไขหน่วยงาน' : 'เพิ่มหน่วยงาน';
-    form.innerHTML = `
-      <div class="form-group"><label>รหัสหน่วยงาน</label><input name="unit_code" value="${esc(item.unit_code || '')}" /></div>
-      <div class="form-group"><label>ชื่อหน่วยงาน *</label><input name="unit_name" required value="${esc(item.unit_name || '')}" /></div>
-      <div class="form-group"><label>หัวหน้าหน่วยงาน</label><input name="unit_head" value="${esc(item.unit_head || '')}" /></div>
-      <div class="form-group"><label>เบอร์โทร</label><input name="tel" value="${esc(item.tel || '')}" /></div>
-      <div class="form-actions"><button class="btn btn-primary full-btn" type="submit">บันทึก</button></div>
-    `;
-  } else if (type === 'user') {
-    const item = id ? cachedUsers.find((x) => x.row_id === id) : {};
-    title.textContent = id ? 'แก้ไขผู้ใช้งาน' : 'เพิ่มผู้ใช้งาน';
-    const unitOpts = state.units.map((u) => `<option value="${u.row_id}" ${u.row_id === item.unit_id ? 'selected' : ''}>${esc(u.unit_name)}</option>`).join('');
-    form.innerHTML = `
-      <div class="form-group"><label>ชื่อ-นามสกุล *</label><input name="full_name" required value="${esc(item.full_name || '')}" /></div>
-      <div class="form-group"><label>ตำแหน่ง</label><input name="position" value="${esc(item.position || '')}" /></div>
-      <div class="form-group"><label>หน่วยงาน</label><select name="unit_id"><option value="0">-- เลือก --</option>${unitOpts}</select></div>
-      <div class="form-group"><label>เบอร์โทร</label><input name="telephone" value="${esc(item.telephone || '')}" /></div>
-      <div class="form-group"><label>Username *</label><input name="username" required value="${esc(item.username || '')}" /></div>
-      <div class="form-group"><label>Password ${id ? '(เว้นว่างหากไม่เปลี่ยน)' : '*'}</label><input name="password" type="password" ${id ? '' : 'required'} /></div>
-      <div class="form-group"><label>สิทธิ์การใช้งาน</label>
-        <select name="role">
-          <option value="user" ${item.role !== 'admin' ? 'selected' : ''}>ผู้ใช้ทั่วไป</option>
-          <option value="admin" ${item.role === 'admin' ? 'selected' : ''}>ผู้อนุมัติ / ผู้ดูแลระบบ</option>
-        </select>
-      </div>
-      <div class="form-actions"><button class="btn btn-primary full-btn" type="submit">บันทึก</button></div>
-    `;
-  }
-  document.getElementById('masterModal').classList.remove('hidden');
+// ==================== PDF PREVIEW (4 OFFICIAL FORMS) ====================
+function openTravelPdf(id, form = 'memo_in', title = '') {
+  state.pdfTravelId = id;
+  state.pdfMode = 'travel';
+  state.pdfForm = form;
+  document.getElementById('pdfFormTabs').classList.remove('hidden');
+  document.getElementById('pdfModalTitle').textContent = `เอกสารไปราชการ #${id} ${title ? `• ${title}` : ''}`;
+  switchPdfForm(form);
+  document.getElementById('pdfModal').classList.remove('hidden');
 }
 
-async function submitMaster(e) {
-  e.preventDefault();
-  const fd = Object.fromEntries(new FormData(e.target).entries());
-  const ep = state.masterType === 'unit' ? 'units' : 'users';
-  try {
-    if (state.masterEditId) await api(`/api/${ep}/${state.masterEditId}`, { method: 'PUT', body: JSON.stringify(fd) });
-    else await api(`/api/${ep}`, { method: 'POST', body: JSON.stringify(fd) });
-    closeModal('masterModal');
-    await loadUnits();
-    if (state.masterType === 'unit') renderUnits();
-    if (state.masterType === 'user') loadUsers();
-  } catch (err) {
-    alert(err.message);
-  }
+function switchPdfForm(form) {
+  state.pdfForm = form;
+  document.querySelectorAll('#pdfFormTabs .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.form === form));
+  const url = `/api/travels/${state.pdfTravelId}/pdf?form=${form}`;
+  document.getElementById('pdfDownloadBtn').href = `${url}&download=1`;
+  document.getElementById('pdfNewTabBtn').href = url;
+  document.getElementById('pdfFrame').src = url;
 }
 
-async function deleteMaster(ep, id, refreshFn) {
-  if (!confirm('ยืนยันการลบข้อมูลนี้ ?')) return;
-  await api(`/api/${ep}/${id}`, { method: 'DELETE' });
-  await loadUnits();
-  refreshFn();
+function openPdfModal(title, url) {
+  state.pdfMode = 'single';
+  document.getElementById('pdfFormTabs').classList.add('hidden');
+  document.getElementById('pdfModalTitle').textContent = title;
+  const sep = url.includes('?') ? '&' : '?';
+  document.getElementById('pdfDownloadBtn').href = `${url}${sep}download=1`;
+  document.getElementById('pdfNewTabBtn').href = url;
+  document.getElementById('pdfFrame').src = url;
+  document.getElementById('pdfModal').classList.remove('hidden');
 }
 
-// ==================== LOGIN / MODALS ====================
-function toggleLoginPass() {
-  const el = document.getElementById('loginPass');
-  if (el) el.type = el.type === 'password' ? 'text' : 'password';
+function printBoard() {
+  openPdfModal('รายงานทะเบียนคำขอไปราชการ A4', '/api/travels/board/pdf');
+}
+
+function closePdfModal() {
+  document.getElementById('pdfFrame').src = 'about:blank';
+  document.getElementById('pdfModal').classList.add('hidden');
+}
+
+function printPdfFrame() {
+  const f = document.getElementById('pdfFrame');
+  try { f.contentWindow.focus(); f.contentWindow.print(); }
+  catch { window.open(document.getElementById('pdfNewTabBtn').href, '_blank'); }
 }
 
 function openLoginModal() {
   document.getElementById('loginError').classList.add('hidden');
-  const closeBtn = document.querySelector('#loginModal .close-btn');
-  if (closeBtn) closeBtn.classList.toggle('hidden', !state.user);
   document.getElementById('loginModal').classList.remove('hidden');
-  const saved = localStorage.getItem('ksp_remember_user');
-  const rem = document.getElementById('loginRemember');
-  if (saved && rem) { document.getElementById('loginUser').value = saved; rem.checked = true; }
-  document.getElementById('loginUser').focus();
 }
-
-function closeModal(id) {
-  if (id === 'loginModal' && !state.user) return;
-  document.getElementById(id).classList.add('hidden');
-}
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
 async function submitLogin(e) {
   e.preventDefault();
@@ -815,18 +659,12 @@ async function submitLogin(e) {
   try {
     await api('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({
-        username: document.getElementById('loginUser').value,
-        password: document.getElementById('loginPass').value,
-      }),
+      body: JSON.stringify({ username: document.getElementById('loginUser').value.trim(), password: document.getElementById('loginPass').value }),
     });
-    const rem = document.getElementById('loginRemember');
-    if (rem && rem.checked) localStorage.setItem('ksp_remember_user', document.getElementById('loginUser').value.trim());
-    else localStorage.removeItem('ksp_remember_user');
     await loadAuth();
     closeModal('loginModal');
-    if (state.viewMode === 'calendar') loadCalendar();
-    else loadTravels(state.page);
+    await loadStats();
+    applyFilters();
   } catch (err) {
     errEl.textContent = err.message;
     errEl.classList.remove('hidden');
@@ -837,8 +675,8 @@ async function logout() {
   await api('/api/auth/logout', { method: 'POST' });
   state.user = null;
   renderAuth();
+  await loadStats();
   switchTab('list');
-  openLoginModal();
 }
 
 init();
