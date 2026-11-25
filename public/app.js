@@ -39,23 +39,26 @@ async function init() {
   populateYearFilter();
   await Promise.all([loadAuth(), loadMaster()]);
   await loadStats();
+  if (!state.user) {
+    openLoginModal();
+    setViewMode('table');
+    return;
+  }
   const urlParams = new URLSearchParams(window.location.search);
   const initTab = urlParams.get('tab');
-  if (initTab === 'mine' && state.user) {
-    switchTab('mine');
-  } else if (initTab === 'create') {
+  if (initTab === 'create') {
     openCreateTab();
   } else {
-    setViewMode('calendar');
+    switchTab('mine');
   }
 }
 
 function populateYearFilter() {
   const sel = document.getElementById('filterYear');
   const cur = new Date().getFullYear();
-  let html = '<option value="">-- ทุกปี --</option>';
-  for (let y = cur + 1; y >= cur - 3; y--) {
-    html += `<option value="${y}" ${y === cur ? 'selected' : ''}>พ.ศ. ${y + 543}</option>`;
+  let html = '<option value="" selected>-- ทุกปี --</option>';
+  for (let y = cur + 1; y >= cur - 4; y--) {
+    html += `<option value="${y}">พ.ศ. ${y + 543}</option>`;
   }
   sel.innerHTML = html;
 }
@@ -721,7 +724,7 @@ async function submitLogin(e) {
     await loadAuth();
     closeModal('loginModal');
     await loadStats();
-    applyFilters();
+    switchTab('mine');
   } catch (err) {
     errEl.textContent = err.message;
     errEl.classList.remove('hidden');

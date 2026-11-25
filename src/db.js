@@ -190,7 +190,6 @@ async function syncFromHrd() {
       LEFT JOIN hrd_department d ON d.department_id = p.department_id
       WHERE t.train_startdate IS NOT NULL
       ORDER BY t.train_data_id DESC
-      LIMIT 500
     `);
 
     if (!hrdRows.length) return;
@@ -294,6 +293,30 @@ async function syncFromHrd() {
             i === 0 ? total : 0,
           ]
         );
+      }
+    }
+
+    // Sync any missing companions from db_hrd.hrd_train_companions
+    const [hrdComps] = await hrdPool.query(
+      'SELECT train_data_id, person_id, seq_no, companion_name, companion_position FROM hrd_train_companions'
+    ).catch(() => [[]]);
+    if (hrdComps.length) {
+      const [trRows] = await travelPool.query('SELECT row_id, hrd_train_data_id FROM travel_requests WHERE hrd_train_data_id IS NOT NULL');
+      const mapHrdToTr = new Map(trRows.map((x) => [Number(x.hrd_train_data_id), Number(x.row_id)]));
+      for (const hc of hrdComps) {
+        const tid = mapHrdToTr.get(Number(hc.train_data_id));
+        if (!tid || !hc.person_id) continue;
+        const [exists] = await travelPool.query(
+          'SELECT id FROM travel_companions WHERE travel_id = ? AND person_id = ? LIMIT 1',
+          [tid, Number(hc.person_id)]
+        );
+        if (!exists.length) {
+          await travelPool.query(
+            `INSERT INTO travel_companions (travel_id, seq_no, person_id, full_name, position)
+             VALUES (?, ?, ?, ?, ?)`,
+            [tid, Number(hc.seq_no || 1), Number(hc.person_id), String(hc.companion_name || '').trim(), String(hc.companion_position || '').trim()]
+          );
+        }
       }
     }
 

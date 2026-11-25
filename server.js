@@ -168,28 +168,38 @@ app.get('/api/units', async (req, res) => {
 // ==================== STATS ====================
 app.get('/api/stats', async (req, res) => {
   try {
-    const uid = req.session.user ? Number(req.session.user.person_id) : 0;
+    if (!req.session.user) {
+      return res.json({
+        total: 0, myCount: 0, pending: 0, approved: 0, completed: 0, rejected: 0,
+        budgetEstimated: 0, budgetActual: 0, eco: { paper: 0, baht: 0, ghg: 0 },
+      });
+    }
+    const uid = Number(req.session.user.person_id);
+    const isAdmin = Boolean(req.session.user.isAdmin);
+    const scopeWhere = isAdmin
+      ? ''
+      : 'WHERE (t.requester_person_id = ? OR EXISTS (SELECT 1 FROM travel_companions tc WHERE tc.travel_id = t.row_id AND tc.person_id = ?))';
+    const scopeParams = isAdmin ? [] : [uid, uid];
+
     const [[agg]] = await travelPool.query(`
       SELECT COUNT(*) AS total,
-             SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS pending,
-             SUM(CASE WHEN status IN (1, 2) THEN 1 ELSE 0 END) AS approved,
-             SUM(CASE WHEN status = 6 THEN 1 ELSE 0 END) AS completed,
-             SUM(CASE WHEN status = 9 THEN 1 ELSE 0 END) AS rejected,
-             COALESCE(SUM(CASE WHEN status != 9 THEN estimated_cost ELSE 0 END), 0) AS est,
-             COALESCE(SUM(CASE WHEN status != 9 THEN actual_cost ELSE 0 END), 0) AS act
-      FROM travel_requests
-    `);
-    let myCount = 0;
-    if (uid > 0) {
-      const [[mine]] = await travelPool.query(
-        `SELECT COUNT(DISTINCT t.row_id) AS cnt
-         FROM travel_requests t
-         LEFT JOIN travel_companions tc ON tc.travel_id = t.row_id
-         WHERE t.requester_person_id = ? OR tc.person_id = ?`,
-        [uid, uid]
-      );
-      myCount = Number(mine?.cnt || 0);
-    }
+             SUM(CASE WHEN t.status = 0 THEN 1 ELSE 0 END) AS pending,
+             SUM(CASE WHEN t.status IN (1, 2) THEN 1 ELSE 0 END) AS approved,
+             SUM(CASE WHEN t.status = 6 THEN 1 ELSE 0 END) AS completed,
+             SUM(CASE WHEN t.status = 9 THEN 1 ELSE 0 END) AS rejected,
+             COALESCE(SUM(CASE WHEN t.status != 9 THEN t.estimated_cost ELSE 0 END), 0) AS est,
+             COALESCE(SUM(CASE WHEN t.status != 9 THEN t.actual_cost ELSE 0 END), 0) AS act
+      FROM travel_requests t
+      ${scopeWhere}
+    `, scopeParams);
+    const [[mine]] = await travelPool.query(
+      `SELECT COUNT(DISTINCT t.row_id) AS cnt
+       FROM travel_requests t
+       LEFT JOIN travel_companions tc ON tc.travel_id = t.row_id
+       WHERE t.requester_person_id = ? OR tc.person_id = ?`,
+      [uid, uid]
+    );
+    const myCount = Number(mine?.cnt || 0);
     const total = Number(agg?.total || 0);
     res.json({
       total,
@@ -242,7 +252,7 @@ function buildWhere(query, user) {
     where.push('t.unit_id = ?');
     params.push(Number(unit_id));
   }
-  if (mine === '1' && user) {
+  if (!user?.isAdmin || mine === '1') {
     where.push('(t.requester_person_id = ? OR EXISTS (SELECT 1 FROM travel_companions tc WHERE tc.travel_id = t.row_id AND tc.person_id = ?))');
     params.push(user.person_id, user.person_id);
   }
@@ -260,6 +270,9 @@ function buildWhere(query, user) {
 
 app.get('/api/travels', async (req, res) => {
   try {
+    if (!req.session.user) {
+      return res.json({ items: [], total: 0, page: 1, limit: 25, totalPages: 1 });
+    }
     const { whereSql, params } = buildWhere(req.query, req.session.user);
     const [[cntRow]] = await travelPool.query(`SELECT COUNT(*) AS cnt FROM travel_requests t ${whereSql}`, params);
     const total = Number(cntRow?.cnt || 0);
@@ -330,6 +343,12 @@ app.get('/api/travels/:id/pdf', requireAuth, async (req, res) => {
   try {
     const item = await getFullTravel(req.params.id);
     if (!item) return res.status(404).json({ error: 'ไม่พบคำขอไปราชการ' });
+    const uid = Number(req.session.user.person_id);
+    const isOwner = Number(item.requester_person_id) === uid;
+    const isComp = (item.companions || []).some((c) => Number(c.person_id) === uid);
+    if (!req.session.user.isAdmin && !isOwner && !isComp) {
+      return res.status(403).json({ error: 'คุณไม่มีสิทธิ์เข้าถึงเอกสารของผู้อื่น' });
+    }
     const form = String(req.query.form || 'memo_in');
     generateTravelRequestPdf(item, res, req.query.download === '1', form);
   } catch (err) {
@@ -337,8 +356,16 @@ app.get('/api/travels/:id/pdf', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/travels/:id/image', async (req, res) => {
+app.get('/api/travels/:id/image', requireAuth, async (req, res) => {
   try {
+    const item = await getFullTravel(req.params.id);
+    if (!item) return res.status(404).json({ error: 'ไม่พบคำขอไปราชการ' });
+    const uid = Number(req.session.user.person_id);
+    const isOwner = Number(item.requester_person_id) === uid;
+    const isComp = (item.companions || []).some((c) => Number(c.person_id) === uid);
+    if (!req.session.user.isAdmin && !isOwner && !isComp) {
+      return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ดูรูปภาพของผู้อื่น' });
+    }
     const [rows] = await travelPool.query(
       `SELECT ti.travel_id, ti.mime_type, ti.file_name, ti.image_data, t.subject
        FROM travel_images ti
@@ -353,10 +380,16 @@ app.get('/api/travels/:id/image', async (req, res) => {
   }
 });
 
-app.get('/api/travels/:id', async (req, res) => {
+app.get('/api/travels/:id', requireAuth, async (req, res) => {
   try {
     const item = await getFullTravel(req.params.id);
     if (!item) return res.status(404).json({ error: 'ไม่พบคำขอไปราชการ' });
+    const uid = Number(req.session.user.person_id);
+    const isOwner = Number(item.requester_person_id) === uid;
+    const isComp = (item.companions || []).some((c) => Number(c.person_id) === uid);
+    if (!req.session.user.isAdmin && !isOwner && !isComp) {
+      return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ดูข้อมูลของผู้อื่น' });
+    }
     res.json(item);
   } catch (err) {
     res.status(500).json({ error: err.message });
