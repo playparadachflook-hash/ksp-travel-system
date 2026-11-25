@@ -418,11 +418,9 @@ function goWizardStep(step) {
   const prevBtn = document.getElementById('btnWizPrev');
   const nextBtn = document.getElementById('btnWizNext');
   const subBtn = document.getElementById('btnWizSubmit');
-  const pvBtn = document.getElementById('btnWizPreview');
   if (prevBtn) prevBtn.disabled = s <= 1;
   if (nextBtn) nextBtn.classList.toggle('hidden', s >= 4);
   if (subBtn) subBtn.classList.toggle('hidden', s < 4);
-  if (pvBtn) pvBtn.classList.toggle('hidden', !document.getElementById('fRowId')?.value);
   if (s === 4 || s === 1) renderCompanionsTable();
 }
 
@@ -439,10 +437,16 @@ function nextWizardStep() {
 }
 
 function previewCurrentStepPdf() {
-  const id = document.getElementById('fRowId')?.value;
-  if (!id) return;
   const formMap = { 1: 'memo_in', 2: 'memo_out', 3: 'attachment', 4: 'estimate' };
-  openTravelPdf(id, formMap[state.wizardStep] || 'memo_in', document.getElementById('fSubject')?.value || '');
+  const form = formMap[state.wizardStep] || 'memo_in';
+  const title = document.getElementById('fSubject')?.value?.trim() || 'ร่างคำขอไปราชการ';
+  state.pdfTravelId = document.getElementById('fRowId')?.value || null;
+  state.pdfMode = 'draft';
+  state.pdfForm = form;
+  document.getElementById('pdfFormTabs').classList.remove('hidden');
+  document.getElementById('pdfModalTitle').textContent = `ตัวอย่างเอกสาร PDF • ${title}`;
+  document.getElementById('pdfModal').classList.remove('hidden');
+  switchPdfForm(form);
 }
 
 function addCompanionRow() {
@@ -657,9 +661,7 @@ async function editTravel(id) {
   switchTab('create');
 }
 
-async function submitTravel(e) {
-  e.preventDefault();
-  const id = document.getElementById('fRowId').value;
+function buildTravelFormPayload() {
   const provId = Number(document.getElementById('fProvinceId').value || 0);
   const provRow = (state.master?.travelRates || []).find((r) => Number(r.province_id) === provId);
   let allow = 0, hotel = 0, travel = 0, reg = 0, other = 0;
@@ -671,7 +673,7 @@ async function submitTravel(e) {
     other += Number(c.other_fee || 0);
   });
 
-  const payload = {
+  return {
     doc_no: document.getElementById('fDocNo').value,
     memo_scope: document.getElementById('fMemoScope').value,
     memo_date: document.getElementById('fMemoDate').value,
@@ -716,6 +718,12 @@ async function submitTravel(e) {
       post_action_3: document.getElementById('fAttPlan3').value,
     },
   };
+}
+
+async function submitTravel(e) {
+  e.preventDefault();
+  const id = document.getElementById('fRowId').value;
+  const payload = buildTravelFormPayload();
 
   try {
     let savedId = id;
@@ -905,9 +913,33 @@ function openTravelPdf(id, form = 'memo_in', title = '') {
   document.getElementById('pdfModal').classList.remove('hidden');
 }
 
-function switchPdfForm(form) {
+async function switchPdfForm(form) {
   state.pdfForm = form;
   document.querySelectorAll('#pdfFormTabs .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.form === form));
+  if (state.pdfMode === 'draft') {
+    try {
+      const resp = await fetch(`/api/travels/preview/pdf?form=${encodeURIComponent(form)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildTravelFormPayload()),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `ไม่สามารถสร้างตัวอย่าง PDF (${resp.status})`);
+      }
+      const blob = await resp.blob();
+      if (state.pdfBlobUrl) URL.revokeObjectURL(state.pdfBlobUrl);
+      state.pdfBlobUrl = URL.createObjectURL(blob);
+      const dlBtn = document.getElementById('pdfDownloadBtn');
+      dlBtn.href = state.pdfBlobUrl;
+      dlBtn.download = `preview-${form}.pdf`;
+      document.getElementById('pdfNewTabBtn').href = state.pdfBlobUrl;
+      document.getElementById('pdfFrame').src = state.pdfBlobUrl;
+    } catch (err) {
+      alert(err.message);
+    }
+    return;
+  }
   const url = `/api/travels/${state.pdfTravelId}/pdf?form=${form}`;
   document.getElementById('pdfDownloadBtn').href = `${url}&download=1`;
   document.getElementById('pdfNewTabBtn').href = url;
@@ -931,6 +963,10 @@ function printBoard() {
 
 function closePdfModal() {
   document.getElementById('pdfFrame').src = 'about:blank';
+  if (state.pdfBlobUrl) {
+    URL.revokeObjectURL(state.pdfBlobUrl);
+    state.pdfBlobUrl = null;
+  }
   document.getElementById('pdfModal').classList.add('hidden');
 }
 

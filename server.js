@@ -364,6 +364,49 @@ app.get('/api/travels/board/pdf', requireAdmin, async (req, res) => {
   }
 });
 
+app.post('/api/travels/preview/pdf', requireAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const form = String(req.query.form || b.form || 'memo_in');
+    const item = {
+      row_id: Number(b.row_id || 0),
+      doc_no: b.doc_no || '',
+      memo_scope: b.memo_scope || 'in_province',
+      memo_date: b.memo_date || new Date().toISOString().slice(0, 10),
+      travel_type: b.travel_type || '',
+      subject: b.subject || '',
+      organizer: b.organizer || '',
+      request_dept: b.request_dept || '',
+      destination: b.destination || '',
+      province: b.province || 'สกลนคร',
+      distance_km: Number(b.distance_km || 0),
+      start_date: b.start_date || '',
+      end_date: b.end_date || '',
+      total_days: Number(b.total_days || 1),
+      transport_type: b.transport_type || '',
+      org_budget_text: b.org_budget_text || '',
+      allowance_cost: Number(b.allowance_cost || 0),
+      hotel_cost: Number(b.hotel_cost || 0),
+      travel_cost: Number(b.travel_cost || 0),
+      reg_cost: Number(b.reg_cost || 0),
+      other_cost: Number(b.other_cost || 0),
+      estimated_cost: Number(b.estimated_cost || 0),
+      requester_name: b.requester_name || req.session.user.full_name || '',
+      requester_position: b.requester_position || '',
+      head_name: b.head_name || '',
+      head_position: b.head_position || '',
+      director_name: b.director_name || '',
+      director_pos1: b.director_pos1 || '',
+      companions: Array.isArray(b.companions) ? b.companions : [],
+      image_data: typeof b.image_data === 'string' && b.image_data.startsWith('data:image/') ? b.image_data : null,
+      attachment: b.attachment || {},
+    };
+    generateTravelRequestPdf(item, res, req.query.download === '1', form);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/travels/:id/pdf', requireAuth, async (req, res) => {
   try {
     const item = await getFullTravel(req.params.id);
