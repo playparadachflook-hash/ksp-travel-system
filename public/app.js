@@ -127,12 +127,15 @@ async function loadStats() {
 }
 
 function switchTab(tab) {
+  if (!state.user) return openLoginModal();
+  if (!state.user.isAdmin && ['list', 'reports', 'admin'].includes(tab)) {
+    tab = 'mine';
+  }
   state.currentTab = tab;
   document.querySelectorAll('.nav-pill').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.tab-view').forEach((v) => v.classList.add('hidden'));
 
   if (tab === 'mine') {
-    if (!state.user) return openLoginModal();
     state.mineOnly = true;
     document.getElementById('view-list').classList.remove('hidden');
     document.getElementById('listTitle').textContent = '🎓 ประวัติอบรม / ไปราชการของฉัน';
@@ -156,10 +159,15 @@ function openCreateTab() {
 }
 
 function filterByStatus(st) {
+  if (!state.user) return openLoginModal();
   document.getElementById('filterStatus').value = String(st);
-  state.mineOnly = false;
-  switchTab('list');
-  setViewMode('table');
+  if (state.user.isAdmin) {
+    state.mineOnly = false;
+    switchTab('list');
+    setViewMode('table');
+  } else {
+    switchTab('mine');
+  }
 }
 
 function setViewMode(mode) {

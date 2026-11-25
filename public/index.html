@@ -22,20 +22,20 @@
 
       <nav class="side-nav" id="navTabs">
         <div class="nav-group-label">เมนูหลัก</div>
-        <button class="nav-pill active" data-tab="list" onclick="switchTab('list')">
-          <span class="nav-ico">📅</span><span>ปฏิทิน &amp; รายการทั้งหมด</span>
-        </button>
-        <button class="nav-pill" data-tab="mine" id="tabMine" onclick="switchTab('mine')">
+        <button class="nav-pill active" data-tab="mine" id="tabMine" onclick="switchTab('mine')">
           <span class="nav-ico">🎓</span><span>ประวัติอบรม / ไปราชการของฉัน</span>
         </button>
         <button class="nav-pill" data-tab="create" onclick="openCreateTab()">
           <span class="nav-ico">✈️</span><span>ยื่นขออนุมัติไปราชการ</span>
         </button>
-        <button class="nav-pill" data-tab="reports" onclick="switchTab('reports')">
-          <span class="nav-ico">📊</span><span>รายงาน &amp; งบประมาณ</span>
-        </button>
 
         <div class="nav-group-label admin-only hidden">ผู้บริหาร / ผู้อนุมัติ</div>
+        <button class="nav-pill admin-only hidden" data-tab="list" onclick="switchTab('list')">
+          <span class="nav-ico">📅</span><span>ปฏิทิน &amp; รายการทั้งหมด</span>
+        </button>
+        <button class="nav-pill admin-only hidden" data-tab="reports" onclick="switchTab('reports')">
+          <span class="nav-ico">📊</span><span>รายงาน &amp; งบประมาณ</span>
+        </button>
         <button class="nav-pill admin-only hidden" data-tab="admin" onclick="switchTab('admin')">
           <span class="nav-ico">🛡️</span><span>เมนูหลังบ้าน (Admin)</span>
           <span id="adminPendingBadge" class="pending-badge hidden">0</span>
@@ -61,7 +61,7 @@
       </header>
 
       <section class="stats-grid no-print">
-        <div class="kpi-tile kpi-indigo" onclick="switchTab('list')" style="cursor:pointer;">
+        <div class="kpi-tile kpi-indigo admin-only hidden" onclick="switchTab('list')" style="cursor:pointer;">
           <span class="kpi-cap"><span>คำขอ / อบรมทั้งหมด</span><span>📋</span></span>
           <strong id="statTotal">-</strong>
         </div>

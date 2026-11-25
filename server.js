@@ -788,7 +788,7 @@ async function getReportData(query) {
   return { filterDesc: desc, byDepartment, byType, byTransport, byStatus };
 }
 
-app.get('/api/reports/summary', async (req, res) => {
+app.get('/api/reports/summary', requireAdmin, async (req, res) => {
   try {
     res.json(await getReportData(req.query));
   } catch (err) {
