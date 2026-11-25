@@ -74,6 +74,29 @@ function splitThaiLines(doc, text, firstW, nextW, maxLines = 2) {
   return lines;
 }
 
+function fitFontSize(doc, fontName, text, maxW, startSize, minSize = 10.5) {
+  const str = String(text ?? '');
+  let size = startSize;
+  doc.font(fontName).fontSize(size);
+  while (size > minSize && doc.widthOfString(str) > maxW) {
+    size -= 0.5;
+    doc.fontSize(size);
+  }
+  return size;
+}
+
+function drawFittedText(doc, fontName, text, x, y, maxW, startSize, opts = {}) {
+  const str = String(text ?? '').trim();
+  if (!str || maxW <= 4) return;
+  const size = fitFontSize(doc, fontName, str, maxW, startSize, opts.minSize || 10.5);
+  const yOffset = (startSize - size) * 0.45;
+  doc.font(fontName).fontSize(size).text(str, x, y + yOffset, {
+    width: maxW,
+    align: opts.align || 'left',
+    lineBreak: false,
+  });
+}
+
 function drawDottedLine(doc, x1, x2, y) {
   if (x2 <= x1) return;
   doc.save();
@@ -89,11 +112,9 @@ function drawField(doc, label, value, x, endX, y, opts = {}) {
   drawDottedLine(doc, lineX1, endX, y + 15.5);
   const valStr = String(value ?? '').trim();
   if (valStr && endX > lineX1 + 8) {
-    doc.font('Thai').fontSize(fontSize).text(valStr, lineX1 + (align === 'center' ? 2 : padLeft), y - 0.5, {
-      width: endX - lineX1 - (align === 'center' ? 4 : padLeft + 2),
-      align,
-      lineBreak: false,
-    });
+    const textX = lineX1 + (align === 'center' ? 2 : padLeft);
+    const maxW = endX - lineX1 - (align === 'center' ? 4 : padLeft + 2);
+    drawFittedText(doc, 'Thai', valStr, textX, y - 0.5, maxW, fontSize, { align, minSize: 11 });
   }
 }
 
@@ -211,22 +232,22 @@ function renderMemoInPage(doc, item) {
   drawField(doc, 'โดยพาหนะ', item.transport_type || '', L, vehSuffixX - 6, y, { align: 'center' });
   doc.font('Thai').fontSize(16).text(vehSuffix, vehSuffixX, y, { lineBreak: false });
 
-  y += 24;
+  y += 22;
   const comps = getCompanions(item);
   for (let i = 1; i <= 6; i++) {
     const c = comps[i - 1] || {};
-    doc.font('Thai').fontSize(16).text(`${i}.`, L + 34, y, { lineBreak: false });
+    doc.font('Thai').fontSize(16).text(`${toThaiDigits(i)}.`, L + 34, y, { lineBreak: false });
     drawDottedLine(doc, L + 52, 298, y + 15.5);
     if (c.full_name) {
-      doc.text(c.full_name, L + 56, y - 0.5, { width: 298 - (L + 56) - 4, lineBreak: false });
+      drawFittedText(doc, 'Thai', c.full_name, L + 56, y - 0.5, 298 - (L + 56) - 4, 16, { minSize: 11.5 });
     }
-    doc.text('ตำแหน่ง', 304, y, { lineBreak: false });
+    doc.font('Thai').fontSize(16).text('ตำแหน่ง', 304, y, { lineBreak: false });
     const posLineX1 = 304 + doc.widthOfString('ตำแหน่ง') + 6;
     drawDottedLine(doc, posLineX1, R, y + 15.5);
     if (c.position) {
-      doc.text(c.position, posLineX1 + 4, y - 0.5, { width: R - posLineX1 - 8, lineBreak: false });
+      drawFittedText(doc, 'Thai', c.position, posLineX1 + 4, y - 0.5, R - posLineX1 - 8, 16, { minSize: 11.5 });
     }
-    y += 20;
+    y += 19;
   }
 
   y += 4;
@@ -239,53 +260,63 @@ function renderMemoInPage(doc, item) {
   const amtX2 = amtX1 + 110;
   drawDottedLine(doc, amtX1, amtX2, y + 15.5);
   if (hospTotal > 0) {
-    doc.text(fmtMoney(hospTotal), amtX1 + 2, y - 0.5, { width: amtX2 - amtX1 - 4, align: 'center', lineBreak: false });
+    drawFittedText(doc, 'Thai', fmtMoney(hospTotal), amtX1 + 2, y - 0.5, amtX2 - amtX1 - 4, 16, { align: 'center' });
   }
-  doc.text('บาท', amtX2 + 8, y, { lineBreak: false });
+  doc.font('Thai').fontSize(16).text('บาท', amtX2 + 8, y, { lineBreak: false });
 
-  y += 26;
+  y += 24;
   doc.font('Thai').fontSize(16).text('จึงเรียนมาเพื่อโปรดพิจารณาอนุมัติ', INDENT, y, { lineBreak: false });
 
   const reqName = String(item.requester_name || comps[0]?.full_name || '').trim();
   const reqPos = String(item.requester_position || comps[0]?.position || '').trim();
 
-  y += 26;
+  y += 24;
   const sigX1 = 294;
   const sigX2 = 448;
   doc.font('Thai').fontSize(16).text('(ลงชื่อ)', sigX1, y, { lineBreak: false });
   drawDottedLine(doc, sigX1 + doc.widthOfString('(ลงชื่อ)') + 4, sigX2, y + 15.5);
   doc.text('ผู้ขออนุมัติ', sigX2 + 6, y, { lineBreak: false });
 
-  y += 20;
+  y += 19;
   doc.text('(', sigX1 + 32, y, { lineBreak: false });
   drawDottedLine(doc, sigX1 + 38, sigX2 - 4, y + 15.5);
   if (reqName) {
-    doc.text(reqName, sigX1 + 40, y - 0.5, { width: sigX2 - sigX1 - 46, align: 'center', lineBreak: false });
+    drawFittedText(doc, 'Thai', reqName, sigX1 + 40, y - 0.5, sigX2 - sigX1 - 46, 16, { align: 'center', minSize: 11.5 });
   }
-  doc.text(')', sigX2, y, { lineBreak: false });
+  doc.font('Thai').fontSize(16).text(')', sigX2, y, { lineBreak: false });
 
-  y += 20;
+  y += 19;
   drawField(doc, 'ตำแหน่ง', reqPos, sigX1 - 8, sigX2 + 54, y, { align: 'center' });
 
-  y += 28;
+  y += 22;
   doc.font('Thai').fontSize(16).text('ความเห็นของหัวหน้ากลุ่มงาน', L, y, { lineBreak: false });
-  y += 20;
+  y += 19;
   doc.text('-   เห็นควรอนุมัติ', L + 22, y, { lineBreak: false });
+  if (item.head_name || item.head_position) {
+    y += 28;
+    doc.text('(', L + 16, y, { lineBreak: false });
+    drawDottedLine(doc, L + 22, L + 178, y + 15.5);
+    if (item.head_name) drawFittedText(doc, 'Thai', item.head_name, L + 24, y - 0.5, 152, 16, { align: 'center', minSize: 11.5 });
+    doc.font('Thai').fontSize(16).text(')', L + 182, y, { lineBreak: false });
+    y += 19;
+    drawField(doc, 'ตำแหน่ง', item.head_position || '', L + 10, L + 200, y, { align: 'center' });
+    y += 22;
+  } else {
+    y += 34;
+  }
 
-  y += 38;
   doc.font('Thai').fontSize(16).text('(   )  อนุมัติ       (   )  ไม่อนุมัติ', 48, y, { align: 'center', width: 500, lineBreak: false });
 
   const dirName = String(item.director_name || 'นางณัฐปภัสร์ นวัตชัยศิริกุล').trim();
   const dirPos1 = String(item.director_pos1 || 'นายแพทย์ชำนาญการพิเศษ รักษาการในตำแหน่ง').trim();
   const dirPos2 = String(item.director_pos2 || 'ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ').trim();
 
-  y += 48;
-  doc.font('Thai').fontSize(16);
-  doc.text(`(  ${dirName}  )`, 230, y, { width: 290, align: 'center', lineBreak: false });
-  y += 20;
-  doc.text(dirPos1, 230, y, { width: 290, align: 'center', lineBreak: false });
-  y += 20;
-  doc.text(dirPos2, 230, y, { width: 290, align: 'center', lineBreak: false });
+  y += 42;
+  drawFittedText(doc, 'Thai', `(  ${dirName}  )`, 210, y, 320, 16, { align: 'center' });
+  y += 19;
+  drawFittedText(doc, 'Thai', dirPos1, 210, y, 320, 16, { align: 'center' });
+  y += 19;
+  drawFittedText(doc, 'Thai', dirPos2, 210, y, 320, 16, { align: 'center' });
 }
 
 /**
@@ -420,14 +451,13 @@ function renderMemoOutPage(doc, item) {
   const dirPos1 = String(item.director_pos1 || 'นายแพทย์ชำนาญการพิเศษ รักษาการในตำแหน่ง').trim();
 
   y += 44;
-  doc.font('Thai').fontSize(16);
-  doc.text(`(  ${dirName}  )`, 210, y, { width: 328, align: 'center', lineBreak: false });
+  drawFittedText(doc, 'Thai', `(  ${dirName}  )`, 172, y, 376, 16, { align: 'center' });
   y += 20;
-  doc.text(dirPos1, 210, y, { width: 328, align: 'center', lineBreak: false });
+  drawFittedText(doc, 'Thai', dirPos1, 172, y, 376, 16, { align: 'center' });
   y += 20;
-  doc.text('ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ  ปฏิบัติราชการแทน  ผู้ว่าราชการจังหวัดสกลนคร', 210, y, { width: 328, align: 'center', lineBreak: false });
+  drawFittedText(doc, 'Thai', 'ผู้อำนวยการโรงพยาบาลโคกศรีสุพรรณ  ปฏิบัติราชการแทน  ผู้ว่าราชการจังหวัดสกลนคร', 172, y, 376, 16, { align: 'center', minSize: 13 });
   y += 20;
-  doc.text('ตามคำสั่งจังหวัดสกลนคร ที่ ๔๐๐๘/๒๕๖๘ ลงวันที่ ๒๒ ธันวาคม พ.ศ. ๒๕๖๘', 210, y, { width: 328, align: 'center', lineBreak: false });
+  drawFittedText(doc, 'Thai', 'ตามคำสั่งจังหวัดสกลนคร ที่ ๔๐๐๘/๒๕๖๘ ลงวันที่ ๒๒ ธันวาคม พ.ศ. ๒๕๖๘', 172, y, 376, 16, { align: 'center', minSize: 13 });
 }
 
 /**
@@ -451,8 +481,12 @@ function renderAttachmentPage(doc, item) {
   drawField(doc, 'ตำแหน่ง', reqPos, 336, R, y, { align: 'center' });
 
   y += 24;
-  const dateRange = `${fmtThaiDatePlain(item.start_date)} - ${fmtThaiDatePlain(item.end_date || item.start_date)}`;
-  const summaryLine = `${item.subject || ''} (${dateRange} ณ ${item.destination || ''})`;
+  const sDate = fmtThaiDatePlain(item.start_date);
+  const eDate = fmtThaiDatePlain(item.end_date || item.start_date);
+  const dateRange = sDate && eDate ? `${sDate} - ${eDate}` : sDate || eDate;
+  const placePart = item.destination ? `ณ ${item.destination}` : '';
+  const metaPart = [dateRange, placePart].filter(Boolean).join(' ');
+  const summaryLine = metaPart ? `${item.subject || ''} (${metaPart})`.trim() : (item.subject || '');
   y = drawWrappedField(doc, 'ขอไปราชการ ( เรื่อง/วัน/เวลา/สถานที่ )', summaryLine, L, R, y, 2, 22);
 
   y += 14;
@@ -488,26 +522,28 @@ function renderAttachmentPage(doc, item) {
   y += 22;
   drawField(doc, '3.', att.post_action_3 || '', L + 34, R, y);
 
-  y += 48;
+  y += 42;
+  doc.font('Thai').fontSize(16).text('(ลงชื่อ)', 248, y, { lineBreak: false });
   drawDottedLine(doc, 290, 460, y + 15.5);
   y += 20;
   doc.font('Thai').fontSize(16).text('(', 282, y, { lineBreak: false });
   drawDottedLine(doc, 288, 462, y + 15.5);
   if (reqName) {
-    doc.text(reqName, 290, y - 0.5, { width: 170, align: 'center', lineBreak: false });
+    drawFittedText(doc, 'Thai', reqName, 290, y - 0.5, 170, 16, { align: 'center', minSize: 11.5 });
   }
-  doc.text(')', 466, y, { lineBreak: false });
+  doc.font('Thai').fontSize(16).text(')', 466, y, { lineBreak: false });
 
   y += 22;
-  doc.text('.........../......................./...........', 286, y, { width: 180, align: 'center', lineBreak: false });
+  const memoDateFmt = fmtThaiDatePlain(item.memo_date);
+  doc.font('Thai').fontSize(16).text(memoDateFmt || '.........../......................./...........', 286, y, { width: 180, align: 'center', lineBreak: false });
 }
 
 /**
  * Form 4: ประมาณการค่าใช้จ่ายในการเดินทางไปราชการ
  */
 function renderEstimatePage(doc, item) {
-  const L = 44;
-  const R = 552;
+  const L = 40;
+  const R = 555;
   const comps = getCompanions(item);
   const reqName = String(item.requester_name || comps[0]?.full_name || '').trim();
   const reqPos = String(item.requester_position || comps[0]?.position || '').trim();
@@ -520,7 +556,7 @@ function renderEstimatePage(doc, item) {
   y += 22;
   drawField(doc, 'ของ', reqName, L, 340, y);
   drawField(doc, 'กับคณะรวม', `${comps.length || 1}`, 346, R - 24, y, { align: 'center' });
-  doc.text('คน', R - 18, y, { lineBreak: false });
+  doc.font('Thai').fontSize(16).text('คน', R - 18, y, { lineBreak: false });
 
   y += 22;
   drawField(doc, 'ไปราชการที่', `${item.destination || ''}${item.province ? ` จ.${item.province}` : ''}`, L, R, y);
@@ -534,23 +570,29 @@ function renderEstimatePage(doc, item) {
   doc.font('Thai').fontSize(16).text('ค่าใช้จ่ายดังรายการต่อไปนี้', L, y, { lineBreak: false });
 
   y += 24;
-  // Table columns total width = 508 (L=44 to R=552)
+  // Table columns total width = 515 (L=40 to R=555)
   const cols = [
-    { key: 'seq', label: 'ที่', w: 24, align: 'center' },
-    { key: 'name', label: 'รายชื่อผู้ไปราชการ', w: 142, align: 'left' },
-    { key: 'level', label: 'ระดับ', w: 54, align: 'center' },
-    { key: 'allow', label: 'เบี้ยเลี้ยง', w: 46, align: 'right' },
-    { key: 'hotel', label: 'ที่พัก', w: 44, align: 'right' },
-    { key: 'travel', label: 'พาหนะ', w: 44, align: 'right' },
-    { key: 'reg', label: 'ลงทะเบียน', w: 48, align: 'right' },
+    { key: 'seq', label: 'ที่', w: 22, align: 'center' },
+    { key: 'name', label: 'รายชื่อผู้ไปราชการ', w: 134, align: 'left' },
+    { key: 'level', label: 'ระดับ', w: 50, align: 'center' },
+    { key: 'allow', label: 'เบี้ยเลี้ยง', w: 45, align: 'right' },
+    { key: 'hotel', label: 'ที่พัก', w: 42, align: 'right' },
+    { key: 'travel', label: 'พาหนะ', w: 42, align: 'right' },
+    { key: 'reg', label: 'ลงทะเบียน', w: 46, align: 'right' },
     { key: 'other', label: 'อื่น ๆ', w: 38, align: 'right' },
-    { key: 'total', label: 'รวม', w: 44, align: 'right' },
-    { key: 'remark', label: 'หมายเหตุ', w: 24, align: 'left' },
+    { key: 'total', label: 'รวม', w: 48, align: 'right' },
+    { key: 'remark', label: 'หมายเหตุ', w: 48, align: 'left' },
   ];
   const headerH = 38;
   const rowH = 22;
   const rowCount = Math.max(12, comps.length);
   const tableH = headerH + (rowCount + 1) * rowH;
+
+  // Header & summary subtle shading
+  doc.save();
+  doc.rect(L, y, R - L, headerH).fill('#f8fafc');
+  doc.rect(L, y + headerH + rowCount * rowH, R - L, rowH).fill('#f1f5f9');
+  doc.restore();
 
   doc.lineWidth(0.7).rect(L, y, R - L, tableH).stroke('#111827');
 
@@ -623,10 +665,9 @@ function renderEstimatePage(doc, item) {
       let vx = L;
       cols.forEach((col, ci) => {
         if (vals[ci]) {
-          doc.text(vals[ci], vx + 3, ry + 3, {
-            width: col.w - 6,
+          drawFittedText(doc, 'Thai', vals[ci], vx + 3, ry + 3, col.w - 6, 13, {
             align: col.align,
-            lineBreak: false,
+            minSize: 9.5,
           });
         }
         vx += col.w;
@@ -653,22 +694,26 @@ function renderEstimatePage(doc, item) {
   for (let i = 0; i < sumVals.length; i++) {
     const col = cols[3 + i];
     if (sumVals[i]) {
-      doc.text(sumVals[i], svx + 3, sumY + 3, { width: col.w - 6, align: 'right', lineBreak: false });
+      drawFittedText(doc, 'ThaiBold', sumVals[i], svx + 3, sumY + 3, col.w - 6, 13.5, { align: 'right', minSize: 9.5 });
     }
     svx += col.w;
   }
 
   // Signature bottom right
   let sy = y + tableH + 26;
+  if (sy + 72 > 820) {
+    doc.addPage();
+    sy = 48;
+  }
   doc.font('Thai').fontSize(16);
-  doc.text('ลงชื่อ', 282, sy, { lineBreak: false });
-  drawDottedLine(doc, 314, 466, sy + 15.5);
+  doc.text('(ลงชื่อ)', 276, sy, { lineBreak: false });
+  drawDottedLine(doc, 316, 466, sy + 15.5);
   doc.text('ผู้ขอไปราชการ', 470, sy, { lineBreak: false });
   sy += 22;
   doc.text('(', 296, sy, { lineBreak: false });
   drawDottedLine(doc, 302, 462, sy + 15.5);
-  if (reqName) doc.text(reqName, 304, sy - 0.5, { width: 156, align: 'center', lineBreak: false });
-  doc.text(')', 466, sy, { lineBreak: false });
+  if (reqName) drawFittedText(doc, 'Thai', reqName, 304, sy - 0.5, 156, 16, { align: 'center', minSize: 11.5 });
+  doc.font('Thai').fontSize(16).text(')', 466, sy, { lineBreak: false });
   sy += 22;
   drawField(doc, 'ตำแหน่ง', reqPos, 282, 480, sy, { align: 'center' });
 }
