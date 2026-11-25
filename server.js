@@ -47,6 +47,7 @@ function requireAdmin(req, res, next) {
 
 function buildSessionUser(u) {
   const fullName = `${u.prename_name || ''}${String(u.fname || '').trim()} ${String(u.lname || '').trim()}`.trim();
+  const grpId = Number(u.user_groups_id || 3);
   return {
     person_id: Number(u.person_id),
     row_id: Number(u.person_id),
@@ -57,8 +58,10 @@ function buildSessionUser(u) {
     unit_id: Number(u.department_id || 0),
     department_id: Number(u.department_id || 0),
     department_name: u.department_name || '',
-    role: [1, 2].includes(Number(u.user_groups_id)) ? 'admin' : 'user',
-    isAdmin: [1, 2].includes(Number(u.user_groups_id)),
+    user_groups_id: grpId,
+    userGroupLabel: u.user_groups_th || (grpId === 1 ? 'ผู้ดูแลระบบ' : (grpId === 2 ? 'ธุรการ (Admin)' : 'ผู้ใช้งานทั่วไป')),
+    role: [1, 2].includes(grpId) ? 'admin' : 'user',
+    isAdmin: [1, 2].includes(grpId),
   };
 }
 
@@ -77,11 +80,13 @@ app.post('/api/auth/login', async (req, res) => {
     const pHash = md5(String(password).trim());
     const [rows] = await hrdPool.query(
       `SELECT p.person_id, p.fname, p.lname, p.phone_number, p.username, p.user_groups_id,
-              p.department_id, p.position_id, pn.prename_name, pos.position_name, d.department_name
+              p.department_id, p.position_id, pn.prename_name, pos.position_name, d.department_name,
+              ug.user_groups_th
        FROM hrd_person p
        LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
        LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
        LEFT JOIN hrd_department d ON d.department_id = p.department_id
+       LEFT JOIN hrd_user_groups ug ON ug.user_groups_id = p.user_groups_id
        WHERE p.username = ? AND (p.password = ? OR p.password = ?)
        LIMIT 1`,
       [u, pHash, String(password).trim()]
@@ -107,11 +112,13 @@ registerMophProviderRoutes(app, {
     const firstTh = String(profile.firstname_th || '').trim();
     const lastTh = String(profile.lastname_th || '').trim();
     const baseSql = `SELECT p.person_id, p.fname, p.lname, p.phone_number, p.username, p.user_groups_id,
-              p.department_id, p.position_id, pn.prename_name, pos.position_name, d.department_name
+              p.department_id, p.position_id, pn.prename_name, pos.position_name, d.department_name,
+              ug.user_groups_th
        FROM hrd_person p
        LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
        LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
-       LEFT JOIN hrd_department d ON d.department_id = p.department_id`;
+       LEFT JOIN hrd_department d ON d.department_id = p.department_id
+       LEFT JOIN hrd_user_groups ug ON ug.user_groups_id = p.user_groups_id`;
     let rows = [];
     if (hashCid) {
       [rows] = await hrdPool.query(`${baseSql} WHERE LOWER(SHA2(REPLACE(REPLACE(TRIM(p.cid), '-', ''), ' ', ''), 256)) = ? LIMIT 1`, [hashCid]);
@@ -199,11 +206,13 @@ app.get('/api/stats', async (req, res) => {
        WHERE t.requester_person_id = ? OR tc.person_id = ?`,
       [uid, uid]
     );
+    const [[globalPend]] = await travelPool.query('SELECT COUNT(*) AS cnt FROM travel_requests WHERE status = 0');
     const myCount = Number(mine?.cnt || 0);
     const total = Number(agg?.total || 0);
     res.json({
       total,
       myCount,
+      globalPending: Number(globalPend?.cnt || 0),
       pending: Number(agg?.pending || 0),
       approved: Number(agg?.approved || 0),
       completed: Number(agg?.completed || 0),
@@ -798,6 +807,97 @@ app.get('/api/reports/pdf', requireAdmin, async (req, res) => {
     ];
     const rows = data.byDepartment.map((d, i) => [i + 1, d.name, d.total, Number(d.est_cost).toLocaleString()]);
     generateReportSectionPdf('รายงานสรุปการไปราชการตามหน่วยงาน', data.filterDesc, cols, rows, res, req.query.download === '1');
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== ADMIN: PERSONS & TRAVEL RATES (db_hrd) ====================
+app.get('/api/persons', requireAdmin, async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const deptId = req.query.department_id ? Number(req.query.department_id) : 0;
+    const grpId = req.query.user_groups_id ? Number(req.query.user_groups_id) : 0;
+    const where = ["COALESCE(TRIM(p.fname), '') != ''"];
+    const params = [];
+    if (q) {
+      where.push('(p.fname LIKE ? OR p.lname LIKE ? OR p.username LIKE ? OR CAST(p.person_id AS CHAR) = ?)');
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`, q);
+    }
+    if (deptId) {
+      where.push('p.department_id = ?');
+      params.push(deptId);
+    }
+    if (grpId) {
+      where.push('p.user_groups_id = ?');
+      params.push(grpId);
+    }
+    const [rows] = await hrdPool.query(
+      `SELECT p.person_id, p.username, p.user_groups_id, p.phone_number,
+              CONCAT(COALESCE(pn.prename_name,''), TRIM(p.fname), ' ', TRIM(p.lname)) AS full_name,
+              pos.position_name, d.department_name, ug.user_groups_th
+       FROM hrd_person p
+       LEFT JOIN hrd_prename pn ON pn.prename_id = p.prename_id
+       LEFT JOIN hrd_position pos ON pos.position_id = p.position_id
+       LEFT JOIN hrd_department d ON d.department_id = p.department_id
+       LEFT JOIN hrd_user_groups ug ON ug.user_groups_id = p.user_groups_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY p.fname, p.lname
+       LIMIT 500`,
+      params
+    );
+    res.json({ items: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/persons/:id', requireAdmin, async (req, res) => {
+  try {
+    const grpId = Number(req.body.user_groups_id || 3);
+    await hrdPool.query('UPDATE hrd_person SET user_groups_id = ? WHERE person_id = ?', [
+      [1, 2, 3].includes(grpId) ? grpId : 3,
+      Number(req.params.id),
+    ]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/travel-rates', requireAdmin, async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const where = q ? 'WHERE province_name_th LIKE ?' : '';
+    const params = q ? [`%${q}%`] : [];
+    const [rows] = await hrdPool.query(
+      `SELECT id, province_id, province_name_th, distance_roundtrip_km, private_car_rate, bus_fare, flight_fare, train_fare
+       FROM hrd_travel_rates ${where} ORDER BY province_name_th`,
+      params
+    );
+    res.json({ items: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/travel-rates/:id', requireAdmin, async (req, res) => {
+  try {
+    const { distance_roundtrip_km, private_car_rate, bus_fare, flight_fare, train_fare } = req.body;
+    await hrdPool.query(
+      `UPDATE hrd_travel_rates
+       SET distance_roundtrip_km = ?, private_car_rate = ?, bus_fare = ?, flight_fare = ?, train_fare = ?
+       WHERE id = ?`,
+      [
+        Number(distance_roundtrip_km || 0),
+        Number(private_car_rate ?? 4),
+        Number(bus_fare || 0),
+        Number(flight_fare || 0),
+        Number(train_fare || 0),
+        Number(req.params.id),
+      ]
+    );
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

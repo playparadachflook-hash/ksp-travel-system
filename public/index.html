@@ -37,7 +37,8 @@
 
         <div class="nav-group-label admin-only hidden">ผู้บริหาร / ผู้อนุมัติ</div>
         <button class="nav-pill admin-only hidden" data-tab="admin" onclick="switchTab('admin')">
-          <span class="nav-ico">🛂</span><span>อนุมัติคำขอไปราชการ</span>
+          <span class="nav-ico">🛡️</span><span>เมนูหลังบ้าน (Admin)</span>
+          <span id="adminPendingBadge" class="pending-badge hidden">0</span>
         </button>
       </nav>
 
@@ -365,9 +366,26 @@
 
       <!-- TAB: ADMIN -->
       <section id="view-admin" class="tab-view hidden">
-        <div class="glass-panel">
+        <div class="seg-toggle" style="margin-bottom:14px;">
+          <button type="button" class="seg-btn active" onclick="switchAdminPane('approve', this)">✅ อนุมัติคำขอไปราชการ</button>
+          <button type="button" class="seg-btn" onclick="switchAdminPane('persons', this)">👥 จัดการสิทธิ์ผู้ใช้งาน (db_hrd)</button>
+          <button type="button" class="seg-btn" onclick="switchAdminPane('travelRates', this)">🚗 อัตราค่าเดินทาง (สกลนคร)</button>
+        </div>
+
+        <div id="adminPane-approve" class="glass-panel">
           <div class="panel-head">
-            <h2>🛂 อนุมัติคำขอไปราชการทั้งหมด</h2>
+            <h2>🛡️ เมนูหลังบ้าน • จัดการอนุมัติคำขอไปราชการทั้งหมด</h2>
+          </div>
+          <div class="filter-bar no-print">
+            <input type="text" id="adminQ" placeholder="ค้นหา: ชื่อผู้ขอ, เรื่อง, สถานที่, เลขที่หนังสือ..." onkeydown="if(event.key==='Enter')loadAdminList(1)" />
+            <select id="adminStatusFilter" onchange="loadAdminList(1)">
+              <option value="0">เฉพาะรออนุมัติ</option>
+              <option value="">ทุกสถานะ</option>
+              <option value="1">อนุมัติแล้ว</option>
+              <option value="6">เสร็จสิ้น</option>
+              <option value="9">ไม่อนุมัติ / ยกเลิก</option>
+            </select>
+            <button type="button" class="btn-aurora" onclick="loadAdminList(1)">ค้นหา</button>
           </div>
           <div class="table-wrap">
             <table>
@@ -383,6 +401,69 @@
                 </tr>
               </thead>
               <tbody id="adminTbody"></tbody>
+            </table>
+          </div>
+          <div id="adminPagination" class="pagination"></div>
+        </div>
+
+        <div id="adminPane-persons" class="glass-panel hidden">
+          <div class="panel-head">
+            <div>
+              <h2>👥 จัดการสิทธิ์ผู้ใช้งานระบบ (เชื่อมฐานข้อมูลกลาง <code>db_hrd</code>)</h2>
+              <p class="section-hint" style="margin:4px 0 0;">สิทธิ์ผู้ดูแลระบบ (Admin) / ธุรการ / ผู้ใช้ทั่วไป ใช้ร่วมกันทั้งระบบลาออนไลน์ (:3535) และระบบไปราชการ (:3534)</p>
+            </div>
+          </div>
+          <div class="filter-bar no-print">
+            <input type="text" id="personSearchQ" placeholder="ค้นหา: ชื่อ-สกุล, Username, รหัส..." onkeydown="if(event.key==='Enter')loadPersons()" />
+            <select id="personDeptFilter" onchange="loadPersons()"><option value="">ทุกกลุ่มงาน</option></select>
+            <select id="personGroupFilter" onchange="loadPersons()">
+              <option value="">ทุกสิทธิ์ระบบ</option>
+              <option value="1">ผู้ดูแลระบบ</option>
+              <option value="2">ธุรการ (Admin)</option>
+              <option value="3">ผู้ใช้งานทั่วไป</option>
+            </select>
+            <button type="button" class="btn-aurora" onclick="loadPersons()">ค้นหา</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>บุคลากร</th>
+                  <th>ตำแหน่ง / กลุ่มงาน</th>
+                  <th style="width:190px;">สิทธิ์การใช้งานระบบ</th>
+                  <th style="width:110px;text-align:center;">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody id="personsTbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="adminPane-travelRates" class="glass-panel hidden">
+          <div class="panel-head">
+            <div>
+              <h2>🚗 อัตราค่าเดินทางกลาง (ต้นทาง: จ.สกลนคร → ทุกจังหวัด)</h2>
+              <p class="section-hint" style="margin:4px 0 0;">กำหนดระยะทางไป-กลับ (กม.) และค่าพาหนะมาตรฐาน (ตาราง <code>hrd_travel_rates</code>)</p>
+            </div>
+          </div>
+          <div class="filter-bar no-print">
+            <input type="text" id="trSearchQ" placeholder="ค้นหาจังหวัดปลายทาง..." onkeydown="if(event.key==='Enter')loadTravelRates()" />
+            <button type="button" class="btn-aurora" onclick="loadTravelRates()">ค้นหา</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>จังหวัดปลายทาง</th>
+                  <th style="width:130px;">ระยะทางไป-กลับ (กม.)</th>
+                  <th style="width:130px;">รถส่วนตัว (บาท/กม.)</th>
+                  <th style="width:130px;">รถโดยสาร (บาท)</th>
+                  <th style="width:130px;">เครื่องบิน (บาท)</th>
+                  <th style="width:130px;">รถไฟ (บาท)</th>
+                  <th style="width:110px;text-align:center;">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody id="travelRatesTbody"></tbody>
             </table>
           </div>
         </div>
