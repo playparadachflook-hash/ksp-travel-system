@@ -206,12 +206,23 @@ app.get('/api/stats', async (req, res) => {
        WHERE t.requester_person_id = ? OR tc.person_id = ?`,
       [uid, uid]
     );
+    const [myByType] = await travelPool.query(
+      `SELECT COALESCE(NULLIF(TRIM(t.travel_type), ''), 'อื่น ๆ') AS travel_type,
+              COUNT(DISTINCT t.row_id) AS cnt
+       FROM travel_requests t
+       LEFT JOIN travel_companions tc ON tc.travel_id = t.row_id
+       WHERE t.requester_person_id = ? OR tc.person_id = ?
+       GROUP BY COALESCE(NULLIF(TRIM(t.travel_type), ''), 'อื่น ๆ')
+       ORDER BY cnt DESC`,
+      [uid, uid]
+    );
     const [[globalPend]] = await travelPool.query('SELECT COUNT(*) AS cnt FROM travel_requests WHERE status = 0');
     const myCount = Number(mine?.cnt || 0);
     const total = Number(agg?.total || 0);
     res.json({
       total,
       myCount,
+      myByType,
       globalPending: Number(globalPend?.cnt || 0),
       pending: Number(agg?.pending || 0),
       approved: Number(agg?.approved || 0),

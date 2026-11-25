@@ -60,8 +60,8 @@
         </div>
       </header>
 
-      <section class="stats-grid no-print" style="grid-template-columns:minmax(240px, 340px);">
-        <div class="kpi-tile kpi-cyan" onclick="switchTab('mine')" style="cursor:pointer;">
+      <section class="stats-grid no-print" id="topStatsGrid">
+        <div class="kpi-tile kpi-cyan" onclick="filterByTravelType('')" style="cursor:pointer;">
           <span class="kpi-cap"><span>ประวัติอบรมของคุณ</span><span>🎓</span></span>
           <strong id="statMine">-</strong>
         </div>
@@ -95,6 +95,18 @@
               <option value="2">กำลังเดินทาง</option>
               <option value="6">เสร็จสิ้น</option>
               <option value="9">ไม่อนุมัติ / ยกเลิก</option>
+            </select>
+            <select id="filterTravelType" onchange="applyFilters()">
+              <option value="">-- ทุกประเภทกิจกรรม --</option>
+              <option value="อบรม/ประชุมวิชาการ">อบรม/ประชุมวิชาการ</option>
+              <option value="เข้ารับการอบรม">เข้ารับการอบรม</option>
+              <option value="ประชุม/สัมมนา">ประชุม/สัมมนา</option>
+              <option value="ศึกษาดูงาน">ศึกษาดูงาน</option>
+              <option value="รับเชิญเป็นวิทยากร">รับเชิญเป็นวิทยากร</option>
+              <option value="นิเทศงาน/ตรวจราชการ">นิเทศงาน/ตรวจราชการ</option>
+              <option value="ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ">ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ</option>
+              <option value="e-Learning">e-Learning</option>
+              <option value="อื่น ๆ">อื่น ๆ</option>
             </select>
             <button class="btn-aurora" onclick="applyFilters()">ค้นหา</button>
             <button class="btn-ghost" onclick="resetFilters()">ล้าง</button>
@@ -194,11 +206,15 @@
                 <div class="form-group">
                   <label>ประเภทกิจกรรม</label>
                   <select id="fTravelType">
-                    <option value="ประชุม/สัมมนา">ประชุม/สัมมนา</option>
                     <option value="อบรม/ประชุมวิชาการ">อบรม/ประชุมวิชาการ</option>
+                    <option value="เข้ารับการอบรม">เข้ารับการอบรม</option>
+                    <option value="ประชุม/สัมมนา">ประชุม/สัมมนา</option>
+                    <option value="ศึกษาดูงาน">ศึกษาดูงาน</option>
+                    <option value="รับเชิญเป็นวิทยากร">รับเชิญเป็นวิทยากร</option>
                     <option value="นิเทศงาน/ตรวจราชการ">นิเทศงาน/ตรวจราชการ</option>
                     <option value="ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ">ส่งต่อผู้ป่วย/ปฏิบัติภารกิจ</option>
-                    <option value="อื่นๆ">อื่นๆ</option>
+                    <option value="e-Learning">e-Learning</option>
+                    <option value="อื่น ๆ">อื่น ๆ</option>
                   </select>
                 </div>
                 <div class="form-group">

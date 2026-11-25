@@ -120,6 +120,48 @@ async function loadStats() {
   setTxt('adminStatPending', Number(s.pending || 0).toLocaleString());
   setTxt('adminStatApproved', Number(s.approved || 0).toLocaleString());
   setTxt('adminStatBudget', Number(s.budgetEstimated || 0).toLocaleString());
+
+  // Render activity-type history cards next to "ประวัติอบรมของคุณ"
+  const grid = document.getElementById('topStatsGrid');
+  if (grid) {
+    const baseCard = `
+      <div class="kpi-tile kpi-cyan" onclick="filterByTravelType('')" style="cursor:pointer;" title="คลิกเพื่อดูประวัติทั้งหมด">
+        <span class="kpi-cap"><span>ประวัติอบรมของคุณ</span><span>🎓</span></span>
+        <strong id="statMine">${state.user ? `เคยอบรม ${Number(s.myCount || 0).toLocaleString()} ครั้ง` : '-'}</strong>
+      </div>
+    `;
+    const typeCounts = new Map((s.myByType || []).map((x) => [x.travel_type, Number(x.cnt || 0)]));
+    const defaultSlots = [
+      { type: 'อบรม/ประชุมวิชาการ', icon: '📚', cls: 'kpi-indigo' },
+      { type: 'ประชุม/สัมมนา', icon: '🗣️', cls: 'kpi-emerald' },
+      { type: 'เข้ารับการอบรม', icon: '🏫', cls: 'kpi-amber' },
+      { type: 'ศึกษาดูงาน', icon: '🚌', cls: 'kpi-rose' },
+    ];
+    // Include any user's actual types first, then fill up to 4 cards
+    const chosen = [];
+    for (const row of (s.myByType || [])) {
+      if (chosen.length >= 4) break;
+      const preset = defaultSlots.find((d) => d.type === row.travel_type);
+      chosen.push({
+        type: row.travel_type,
+        cnt: Number(row.cnt || 0),
+        icon: preset ? preset.icon : '📌',
+        cls: preset ? preset.cls : ['kpi-indigo', 'kpi-emerald', 'kpi-amber', 'kpi-rose'][chosen.length % 4],
+      });
+    }
+    for (const d of defaultSlots) {
+      if (chosen.length >= 4) break;
+      if (!chosen.some((c) => c.type === d.type)) {
+        chosen.push({ type: d.type, cnt: typeCounts.get(d.type) || 0, icon: d.icon, cls: d.cls });
+      }
+    }
+    grid.innerHTML = baseCard + chosen.map((c) => `
+      <div class="kpi-tile ${c.cls}" onclick="filterByTravelType('${esc(c.type)}')" style="cursor:pointer;" title="คลิกเพื่อกรองดูรายการ${esc(c.type)}">
+        <span class="kpi-cap"><span>${esc(c.type)}</span><span>${c.icon}</span></span>
+        <strong>${state.user ? `${c.cnt.toLocaleString()} ครั้ง` : '-'}</strong>
+      </div>
+    `).join('');
+  }
   const badge = document.getElementById('adminPendingBadge');
   if (badge) {
     const gp = Number(s.globalPending || 0);
@@ -164,6 +206,13 @@ function openCreateTab() {
   switchTab('create');
 }
 
+function filterByTravelType(t) {
+  if (!state.user) return openLoginModal();
+  const sel = document.getElementById('filterTravelType');
+  if (sel) sel.value = t || '';
+  switchTab('mine');
+}
+
 function filterByStatus(st) {
   if (!state.user) return openLoginModal();
   document.getElementById('filterStatus').value = String(st);
@@ -195,6 +244,8 @@ function resetFilters() {
   document.getElementById('filterQ').value = '';
   document.getElementById('filterMonth').value = '0';
   document.getElementById('filterStatus').value = '';
+  const ft = document.getElementById('filterTravelType');
+  if (ft) ft.value = '';
   applyFilters();
 }
 
@@ -260,6 +311,7 @@ async function loadTravels(page = 1) {
     year: document.getElementById('filterYear').value,
     month: document.getElementById('filterMonth').value,
     status: document.getElementById('filterStatus').value,
+    travel_type: document.getElementById('filterTravelType')?.value || '',
     mine: state.mineOnly ? '1' : '0',
   });
   const data = await api(`/api/travels?${params.toString()}`);
