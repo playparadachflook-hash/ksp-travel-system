@@ -244,6 +244,7 @@ async function loadTravels(page = 1) {
         <td><strong>${esc(r.requester_name)}</strong>${r.travelers ? `<br><small style="color:#0f766e">👥 ${esc(r.travelers)}</small>` : ''}</td>
         <td><span class="badge badge-${r.status || 0}">${esc(STATUS_LABELS[r.status] || 'รออนุมัติ')}</span></td>
         <td style="white-space:nowrap">
+          ${r.has_image ? `<button class="btn-soft btn-sm" onclick="openTravelImageModal(${r.row_id})">🖼️ รูปภาพ</button>` : ''}
           ${state.user ? `<button class="btn-aurora btn-sm" onclick="openTravelPdf(${r.row_id}, '${defForm}', '${esc(r.subject)}')">🖨️ พิมพ์/PDF</button>` : ''}
           ${canEdit ? `<button class="btn-soft btn-sm" onclick="editTravel(${r.row_id})">✏️ แก้ไข</button>` : ''}
           ${state.user?.isAdmin ? `<button class="btn-danger btn-sm" onclick="deleteTravel(${r.row_id})">ลบ</button>` : ''}
@@ -291,6 +292,11 @@ function resetTravelForm() {
   document.getElementById('fReqPos').value = state.user?.position || '';
   document.getElementById('fHeadName').value = '';
   document.getElementById('fHeadPos').value = '';
+  document.getElementById('fImageData').value = '';
+  document.getElementById('fImageName').value = '';
+  document.getElementById('fImageFile').value = '';
+  document.getElementById('fImagePreview').src = '';
+  document.getElementById('fImagePreviewWrap').classList.add('hidden');
   document.querySelector('input[name="attHistory"][value="never"]').checked = true;
   state.companions = [{
     person_id: state.user?.person_id || null,
@@ -473,6 +479,12 @@ async function editTravel(id) {
   document.getElementById('fAttPlan1').value = att.post_action_1 || '';
   document.getElementById('fAttPlan2').value = att.post_action_2 || '';
   document.getElementById('fAttPlan3').value = att.post_action_3 || '';
+  document.getElementById('fImageData').value = item.image_data || '';
+  document.getElementById('fImageName').value = item.image_name || '';
+  if (item.image_data) {
+    document.getElementById('fImagePreview').src = item.image_data;
+    document.getElementById('fImagePreviewWrap').classList.remove('hidden');
+  }
 
   state.companions = (item.companions || []).length
     ? item.companions.map((c) => ({ ...c }))
@@ -525,6 +537,8 @@ async function submitTravel(e) {
     director_name: document.getElementById('fDirName').value,
     director_pos1: document.getElementById('fDirPos1').value,
     companions: state.companions.filter((c) => String(c.full_name || '').trim()),
+    image_data: document.getElementById('fImageData').value,
+    image_name: document.getElementById('fImageName').value,
     attachment: {
       history_status: document.querySelector('input[name="attHistory"]:checked')?.value || 'never',
       necessity_reason: document.getElementById('fAttNecessity').value,
@@ -644,6 +658,49 @@ function printPdfFrame() {
   const f = document.getElementById('pdfFrame');
   try { f.contentWindow.focus(); f.contentWindow.print(); }
   catch { window.open(document.getElementById('pdfNewTabBtn').href, '_blank'); }
+}
+
+function onTravelImageSelected(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const maxW = 1200;
+      const scale = img.width > maxW ? maxW / img.width : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      document.getElementById('fImageData').value = dataUrl;
+      document.getElementById('fImageName').value = file.name || 'image.jpg';
+      document.getElementById('fImagePreview').src = dataUrl;
+      document.getElementById('fImagePreviewWrap').classList.remove('hidden');
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeTravelImage() {
+  document.getElementById('fImageData').value = '__REMOVE__';
+  document.getElementById('fImageName').value = '';
+  document.getElementById('fImageFile').value = '';
+  document.getElementById('fImagePreview').src = '';
+  document.getElementById('fImagePreviewWrap').classList.add('hidden');
+}
+
+async function openTravelImageModal(id) {
+  try {
+    const data = await api(`/api/travels/${id}/image`);
+    document.getElementById('travelImageModalTitle').textContent = `🖼️ ${data.subject || `รูปภาพ #${id}`}`;
+    document.getElementById('travelImageModalImg').src = data.image_data;
+    document.getElementById('travelImageModal').classList.remove('hidden');
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 function openLoginModal() {

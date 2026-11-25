@@ -296,6 +296,24 @@ async function syncFromHrd() {
         );
       }
     }
+
+    // Sync any images from db_hrd.hrd_train_images
+    const [hrdImgs] = await hrdPool.query(
+      'SELECT train_data_id, mime_type, file_name, image_data FROM hrd_train_images'
+    ).catch(() => [[]]);
+    if (hrdImgs.length) {
+      const [trRows] = await travelPool.query('SELECT row_id, hrd_train_data_id FROM travel_requests WHERE hrd_train_data_id IS NOT NULL');
+      const mapHrdToTr = new Map(trRows.map((x) => [Number(x.hrd_train_data_id), Number(x.row_id)]));
+      for (const img of hrdImgs) {
+        const tid = mapHrdToTr.get(Number(img.train_data_id));
+        if (tid) {
+          await travelPool.query(
+            `INSERT IGNORE INTO travel_images (travel_id, mime_type, file_name, image_data) VALUES (?, ?, ?, ?)`,
+            [tid, img.mime_type || 'image/jpeg', img.file_name || '', img.image_data]
+          );
+        }
+      }
+    }
   } catch (err) {
     console.warn('syncFromHrd skipped:', err.message);
   }

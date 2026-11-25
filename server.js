@@ -337,6 +337,22 @@ app.get('/api/travels/:id/pdf', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/travels/:id/image', async (req, res) => {
+  try {
+    const [rows] = await travelPool.query(
+      `SELECT ti.travel_id, ti.mime_type, ti.file_name, ti.image_data, t.subject
+       FROM travel_images ti
+       JOIN travel_requests t ON t.row_id = ti.travel_id
+       WHERE ti.travel_id = ? LIMIT 1`,
+      [Number(req.params.id)]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'ไม่พบรูปภาพประกอบ' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/travels/:id', async (req, res) => {
   try {
     const item = await getFullTravel(req.params.id);
